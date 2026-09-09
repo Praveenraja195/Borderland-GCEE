@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!-- Fix §5.2: preconnect + preload stylesheet replaces the render-blocking
+       @import that was inside theme.css. This lets the browser discover
+       font URLs in parallel with CSS parsing instead of sequentially. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=UnifrakturMaguntia&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Borderland-GCEE — Admin Console</title>
+  <link rel="stylesheet" href="../shared/css/theme.css?v=v42_fix_room_data_var" />
+  <link rel="stylesheet" href="css/admin.css?v=v42_fix_room_data_var" />
+</head>
+<body>
+  <div id="app" class="admin-shell mode-light"></div>
+  <script type="module" src="js/main.js?v=v42_fix_room_data_var"></script>
+</body>
+</html>

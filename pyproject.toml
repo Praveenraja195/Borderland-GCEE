@@ -1,0 +1,47 @@
+[project]
+name = "round1-backend"
+version = "0.1.0"
+description = "FastAPI backend for the Round 1 card-game event schema"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "gunicorn>=22.0.0",
+    "sqlalchemy>=2.0.30",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0.0",
+    "python-multipart>=0.0.9",
+    "apscheduler>=3.10.4",
+    "redis>=5.0.0",
+    "websockets>=12.0",
+    # Bulk team import from a registration spreadsheet + the Round 2
+    # winners/credentials exports (app/services/team_import_service.py,
+    # app/services/export_service.py). Read/write .xlsx only; .csv is
+    # handled by the stdlib.
+    "openpyxl>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    # Demo (practice) rounds live entirely in Redis, so tests/test_demo_rounds.py
+    # runs against an in-memory Redis and needs no Postgres.
+    "fakeredis>=2.23.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

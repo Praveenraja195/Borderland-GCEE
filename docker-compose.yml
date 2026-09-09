@@ -1,0 +1,52 @@
+services:
+  api:
+    build: .
+    command: gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      RUN_MIGRATIONS: "true"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      DATABASE_URL: postgresql+asyncpg://round1:round1@postgres:5432/round1
+      SYNC_DATABASE_URL: postgresql+psycopg2://round1:round1@postgres:5432/round1
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
+
+  worker:
+    build: .
+    command: python -m app.workers.scheduler
+    volumes:
+      - .:/code
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql+asyncpg://round1:round1@postgres:5432/round1
+      SYNC_DATABASE_URL: postgresql+psycopg2://round1:round1@postgres:5432/round1
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
+
+  postgres:
+    image: postgres:16
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: round1
+      POSTGRES_USER: round1
+      POSTGRES_PASSWORD: round1
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:

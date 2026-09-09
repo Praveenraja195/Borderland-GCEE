@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Leaderboard 40+ Teams Overflow Test</title>
+  <link rel="stylesheet" href="../shared/css/theme.css" />
+  <link rel="stylesheet" href="css/team.css" />
+  <style>
+    body {
+      background: #000;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="app-shell mode-dark"></div>
+
+  <script type="module">
+    import { api } from '../shared/js/api.js';
+
+    // Mock localStorage for test team "T28"
+    localStorage.setItem('bl_team_code', 'T28');
+    localStorage.setItem('bl_team_suit', 'SPADE');
+    localStorage.setItem('bl_team_token', 'mock.eyJ0ZWFtX2NvZGUiOiJUMjgifQ==.signature');
+
+    // Create 42 mock teams
+    const mockTeams = [];
+    const suits = ['SPADE', 'HEART', 'DIAMOND', 'CLUB'];
+    const suitSymbols = { SPADE: '♠', HEART: '♥', DIAMOND: '♦', CLUB: '♣' };
+
+    for (let i = 1; i <= 42; i++) {
+      const code = `T${i}`;
+      const suit = suits[(i - 1) % 4];
+      mockTeams.push({
+        team_code: code,
+        team_name: i === 28 ? 'CYBER SPADES SURVIVORS' : (i === 1 ? 'SHIBUYA REVOLUTIONARIES' : `SURVIVOR TEAM ${i}`),
+        team_suit_code: suit,
+        team_suit_symbol: suitSymbols[suit],
+        total_score: Number((100 - (i * 1.8)).toFixed(1)),
+        overall_rank: i,
+        mindmaze_score: 25.0,
+        ace_spade_score: 20.0,
+        king_diamond_score: 20.0,
+        jack_heart_score: Number((35 - (i * 0.8)).toFixed(1)),
+        is_published: true
+      });
+    }
+
+    // Mock API overallLeaderboard
+    api.team.overallLeaderboard = async () => mockTeams;
+    api.team.me = async () => ({ team_code: 'T28', team_name: 'CYBER SPADES SURVIVORS' });
+
+    // Render screen
+    import { renderLeaderboard } from './js/screens/leaderboard.js';
+    const root = document.getElementById('app');
+    renderLeaderboard(root, (hash) => console.log('Navigate to', hash));
+  </script>
+</body>
+</html>
