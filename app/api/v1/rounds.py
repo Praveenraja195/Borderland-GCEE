@@ -164,11 +164,33 @@ async def delete_round(
     _admin=Depends(require_role(AdminRole.SUPER_ADMIN)),
 ):
     """Deletes a round, resetting the event state so a new round can be created from scratch."""
+    from sqlalchemy import text
     round_obj = await db.get(Round, round_id)
     if round_obj is None:
         raise NotFoundError("Round not found")
+
+    # Clean up dependent records explicitly to guarantee smooth cascade across all FK constraints
+    await db.execute(text("DELETE FROM qualification_rules WHERE round_id = :rid"), {"rid": str(round_id)})
+    await db.execute(text("DELETE FROM round1_selections WHERE round_id = :rid"), {"rid": str(round_id)})
+    await db.execute(text("DELETE FROM game_sessions WHERE round_id = :rid"), {"rid": str(round_id)})
+    await db.execute(text("DELETE FROM round_games WHERE round_id = :rid"), {"rid": str(round_id)})
+    await db.execute(text("DELETE FROM rooms WHERE round_id = :rid"), {"rid": str(round_id)})
     await db.delete(round_obj)
     await db.commit()
+
+    # Clear any demo / game state in Redis and broadcast reset
+    try:
+        from app.core.config import settings
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(settings.redis_url)
+        demo_keys = [k async for k in r.scan_iter("demo:*")]
+        if demo_keys:
+            await r.delete(*demo_keys)
+        await r.publish("leaderboard:overall", "updated")
+        await r.publish("event:reset", "reset")
+        await r.close()
+    except Exception:
+        pass
 
 
 @router.get("/admin/rounds", response_model=list[RoundListEntry])
@@ -263,12 +285,26 @@ async def update_round_status(
             round_obj.start_time = now
         if round_obj.end_time is None:
             round_obj.end_time = round_obj.start_time + timedelta(minutes=55)
+        rooms = (await db.execute(select(Room).where(Room.round_id == round_id))).scalars().all()
+        for r in rooms:
+            if r.status == RoomStatus.NOT_STARTED:
+                r.status = RoomStatus.ACTIVE
     elif payload.status == RoundStatus.COMPLETED:
         if round_obj.end_time is None:
             round_obj.end_time = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(round_obj)
+
+    try:
+        from app.workers.jobs import _publish
+        await _publish("leaderboard:overall")
+        rooms = (await db.execute(select(Room).where(Room.round_id == round_id))).scalars().all()
+        for r in rooms:
+            await _publish(f"room:{r.room_id}:sessions")
+    except Exception:
+        pass
+
     return round_obj
 
 

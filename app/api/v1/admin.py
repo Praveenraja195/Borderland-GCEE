@@ -153,6 +153,7 @@ async def get_room_leaderboard_admin(
 
     query = text("""
         SELECT
+            t.team_id,
             r.room_id,
             r.room_code,
             t.team_code,
@@ -172,11 +173,11 @@ async def get_room_leaderboard_admin(
                 WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
             ), 0)::FLOAT AS ace_spade_score,
             COALESCE(kd.score, (
-                SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                 FROM king_diamond_submissions kds
                 JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                 WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-            ), 30.0)::FLOAT AS king_diamond_score,
+            ), 0.0)::FLOAT AS king_diamond_score,
             COALESCE(jh.score, (
                 SELECT COALESCE(SUM(jha.round_score), 0)
                 FROM jack_heart_answers jha
@@ -194,11 +195,11 @@ async def get_room_leaderboard_admin(
                 JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                 WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
             ), 0) + COALESCE(kd.score, (
-                SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                 FROM king_diamond_submissions kds
                 JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                 WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-            ), 30.0) + COALESCE(jh.score, (
+            ), 0.0) + COALESCE(jh.score, (
                 SELECT COALESCE(SUM(jha.round_score), 0)
                 FROM jack_heart_answers jha
                 JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
@@ -217,11 +218,11 @@ async def get_room_leaderboard_admin(
                     JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                     WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                 ), 0) + COALESCE(kd.score, (
-                    SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                    SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                     FROM king_diamond_submissions kds
                     JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                     WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                ), 30.0) + COALESCE(jh.score, (
+                ), 0.0) + COALESCE(jh.score, (
                     SELECT COALESCE(SUM(jha.round_score), 0)
                     FROM jack_heart_answers jha
                     JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
@@ -255,7 +256,150 @@ async def get_room_leaderboard_admin(
         ORDER BY live_rank;
     """)
     rows = (await db.execute(query, {"room_id": str(room_id)})).mappings().all()
-    return [dict(row) for row in rows]
+
+    # Query round-by-round details for each game in this room
+    mm_q = text("""
+        SELECT 
+            mr.team_id,
+            mrd.round_number,
+            mr.moves,
+            mr.mistakes,
+            mr.correct_tiles,
+            mr.round_score::FLOAT as score,
+            mr.completion_time
+        FROM mindmaze_results mr
+        JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
+        JOIN game_sessions gs ON gs.session_id = mrd.session_id
+        WHERE gs.room_id = :room_id
+        ORDER BY mrd.round_number ASC
+    """)
+    as_q = text("""
+        SELECT 
+            asr.team_id,
+            asrd.round_number,
+            asr.moves,
+            asr.wrong_picks,
+            asr.correct_picks,
+            asr.round_score::FLOAT as score,
+            asr.completion_time
+        FROM ace_spade_results asr
+        JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
+        JOIN game_sessions gs ON gs.session_id = asrd.session_id
+        WHERE gs.room_id = :room_id
+        ORDER BY asrd.round_number ASC
+    """)
+    kd_q = text("""
+        SELECT 
+            kds.team_id,
+            kdr.round_number,
+            kds.submitted_number::FLOAT as submitted_number,
+            kdr.target_value::FLOAT as target_value,
+            kdr.average_value::FLOAT as average_value,
+            kds.difference::FLOAT as difference,
+            kds.rank,
+            kds.round_score::FLOAT as penalty,
+            GREATEST(0.0, 20.0 - COALESCE(kds.round_score, 0.0))::FLOAT as score,
+            kds.is_winner,
+            kdr.is_closed
+        FROM king_diamond_submissions kds
+        JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+        JOIN game_sessions gs ON gs.session_id = kdr.session_id
+        WHERE gs.room_id = :room_id
+        ORDER BY kdr.round_number ASC
+    """)
+    jh_q = text("""
+        SELECT 
+            jha.team_id,
+            jhr.round_number,
+            jha.is_correct,
+            jha.round_score::FLOAT as score,
+            s_sub.label as submitted_symbol,
+            s_act.label as actual_symbol,
+            jha.time_taken
+        FROM jack_heart_answers jha
+        JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
+        JOIN game_sessions gs ON gs.session_id = jhr.session_id
+        LEFT JOIN jh_symbols s_sub ON s_sub.symbol_id = jha.submitted_symbol_id
+        LEFT JOIN jh_symbols s_act ON s_act.symbol_id = jha.actual_symbol_id
+        WHERE gs.room_id = :room_id
+        ORDER BY jhr.round_number ASC
+    """)
+
+    params = {"room_id": str(room_id)}
+    mm_res = (await db.execute(mm_q, params)).mappings().all()
+    as_res = (await db.execute(as_q, params)).mappings().all()
+    kd_res = (await db.execute(kd_q, params)).mappings().all()
+    jh_res = (await db.execute(jh_q, params)).mappings().all()
+
+    def _fmt_td(td):
+        if td is None:
+            return None
+        total_sec = td.total_seconds()
+        return f"{int(total_sec // 60):02d}:{int(total_sec % 60):02d}"
+
+    # Group rounds by team_id
+    team_rounds: dict[uuid.UUID, dict[str, list[dict]]] = {}
+    for r in mm_res:
+        t_id = r["team_id"]
+        team_rounds.setdefault(t_id, {}).setdefault("MINDMAZE", []).append({
+            "round_number": r["round_number"],
+            "moves": r["moves"],
+            "mistakes": r["mistakes"],
+            "correct_tiles": r["correct_tiles"],
+            "score": r["score"],
+            "completion_time": _fmt_td(r["completion_time"]),
+        })
+
+    for r in as_res:
+        t_id = r["team_id"]
+        team_rounds.setdefault(t_id, {}).setdefault("ACE_SPADE", []).append({
+            "round_number": r["round_number"],
+            "moves": r["moves"],
+            "wrong_picks": r["wrong_picks"],
+            "correct_picks": r["correct_picks"],
+            "score": r["score"],
+            "completion_time": _fmt_td(r["completion_time"]),
+        })
+
+    for r in kd_res:
+        t_id = r["team_id"]
+        team_rounds.setdefault(t_id, {}).setdefault("KING_DIAMOND", []).append({
+            "round_number": r["round_number"],
+            "submitted_number": r["submitted_number"],
+            "target_value": r["target_value"],
+            "average_value": r["average_value"],
+            "difference": r["difference"],
+            "rank": r["rank"],
+            "penalty": r["penalty"],
+            "score": r["score"],
+            "is_winner": r["is_winner"],
+            "is_closed": r["is_closed"],
+        })
+
+    for r in jh_res:
+        t_id = r["team_id"]
+        team_rounds.setdefault(t_id, {}).setdefault("JACK_HEART", []).append({
+            "round_number": r["round_number"],
+            "is_correct": r["is_correct"],
+            "score": r["score"],
+            "submitted_symbol": r["submitted_symbol"],
+            "actual_symbol": r["actual_symbol"],
+            "time_taken": _fmt_td(r["time_taken"]),
+        })
+
+    results = []
+    for row in rows:
+        d = dict(row)
+        t_id = d.get("team_id")
+        d["round_details"] = team_rounds.get(t_id, {
+            "MINDMAZE": [],
+            "ACE_SPADE": [],
+            "KING_DIAMOND": [],
+            "JACK_HEART": [],
+        })
+        results.append(d)
+
+    return results
 
 
 @router.put("/rounds/{round_id}/qualification-rule", response_model=QualificationRuleOut)

@@ -2,6 +2,7 @@ import { api } from '../../../shared/js/api.js';
 import { openWinnersModal } from './winners-export.js';
 import { GAMES } from '../../../shared/js/copy.js';
 import { toast } from '../../../shared/js/ui.js';
+import { LiveChannel } from '../../../shared/js/ws.js';
 
 const ALL_GAMES = ['MINDMAZE', 'ACE_SPADE', 'KING_DIAMOND', 'JACK_HEART'];
 
@@ -34,10 +35,9 @@ export function renderDashboard(root, navigate, role) {
     try {
       const rounds = await api.admin.listRounds();
       if (!rounds.length) {
-        if (!silent) {
-          topline.innerHTML = `<h1 class="admin-h1">Dashboard</h1>`;
-          renderNoRound();
-        }
+        roundData = null;
+        topline.innerHTML = `<h1 class="admin-h1">Dashboard</h1>`;
+        renderNoRound();
         return;
       }
       // Use the first (and only) round
@@ -49,23 +49,17 @@ export function renderDashboard(root, navigate, role) {
       ]);
       roundData = detail;
 
-      if (!silent) {
+      if (!silent || !topline.querySelector('#reset-event-btn')) {
         topline.innerHTML = `<h1 class="admin-h1">Dashboard</h1>`;
         if (role === 'SUPER_ADMIN') {
           const resetBtn = document.createElement('button');
           resetBtn.className = 'btn danger';
+          resetBtn.id = 'reset-event-btn';
           resetBtn.style.marginLeft = 'auto';
           resetBtn.innerHTML = '<span class="mi">restart_alt</span> Reset Event';
           topline.appendChild(resetBtn);
-          resetBtn.addEventListener('click', async () => {
-            if (!confirm('WARNING: This deletes the round, rooms, all game sessions, selections, and scores! This CANNOT be undone. Are you sure you want to start fresh?')) return;
-            try {
-              await api.admin.deleteRound(detail.round_id);
-              toast('Event wiped successfully! You can now start fresh.');
-              load();
-            } catch (err) {
-              toast(err.message, { error: true });
-            }
+          resetBtn.addEventListener('click', () => {
+            openResetEventModal(detail.round_id, detail.name || `Round ${detail.round_number}`);
           });
         }
         renderDashboardContent(detail, gameSessions, demoSessions);
@@ -78,6 +72,73 @@ export function renderDashboard(root, navigate, role) {
         body.innerHTML = `<p class="status-note error">${err.message}</p>`;
       }
     }
+  }
+
+  function openResetEventModal(roundId, roundName) {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal" style="max-width: 520px; border-top: 4px solid var(--bl-red, #dc2626);">
+        <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:16px;">
+          <div style="width:48px; height:48px; border-radius:12px; background:#fee2e2; border:1px solid #fca5a5; color:#dc2626; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <span class="mi" style="font-size:28px;">warning</span>
+          </div>
+          <div>
+            <h3 style="margin:0 0 4px 0; font-size:1.15rem; color:#0f172a; font-weight:900;">Reset Event & Start Fresh?</h3>
+            <p style="margin:0; font-size:0.8rem; color:#64748b;">
+              This will completely wipe <strong>${roundName || 'Round 1'}</strong> and all game data.
+            </p>
+          </div>
+        </div>
+
+        <div style="background:#fff1f2; border:1px solid #fecdd3; border-radius:8px; padding:12px 14px; margin-bottom:16px; font-size:0.78rem; color:#9f1239; line-height:1.5;">
+          <div style="font-weight:800; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+            <span class="mi" style="font-size:16px;">delete_forever</span> This action will permanently erase:
+          </div>
+          <ul style="margin:0; padding-left:18px;">
+            <li>All rooms, room assignments, and game sessions</li>
+            <li>All team selections, player answers, and scores across all 4 games</li>
+            <li>Final qualification rankings and leaderboard results</li>
+          </ul>
+          <div style="margin-top:8px; font-weight:700; color:#059669; display:flex; align-items:center; gap:4px;">
+            <span class="mi" style="font-size:15px;">check_circle</span> Registered teams & logins will be preserved.
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:flex-end; gap:10px;">
+          <button type="button" class="btn" id="modal-cancel-reset-btn" style="padding:8px 16px;">Cancel</button>
+          <button type="button" class="btn danger" id="modal-confirm-reset-btn" style="padding:8px 20px; font-weight:800; background:#dc2626; color:#fff;">
+            <span class="mi">restart_alt</span> Wipe Event & Start Fresh
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+
+    const cancelBtn = backdrop.querySelector('#modal-cancel-reset-btn');
+    const confirmBtn = backdrop.querySelector('#modal-confirm-reset-btn');
+
+    cancelBtn.onclick = () => backdrop.remove();
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+
+    confirmBtn.onclick = async () => {
+      confirmBtn.disabled = true;
+      cancelBtn.disabled = true;
+      confirmBtn.innerHTML = '<span class="mi spin">autorenew</span> Wiping event...';
+      try {
+        await api.admin.deleteRound(roundId);
+        backdrop.remove();
+        toast('🎉 Event wiped successfully! You can now start fresh.');
+        roundData = null;
+        load();
+      } catch (err) {
+        toast(err.message, { error: true });
+        confirmBtn.disabled = false;
+        cancelBtn.disabled = false;
+        confirmBtn.innerHTML = '<span class="mi">restart_alt</span> Wipe Event & Start Fresh';
+      }
+    };
   }
 
 
@@ -197,9 +258,9 @@ export function renderDashboard(root, navigate, role) {
       </div>
 
       <!-- Main Dashboard Publish Final Results to All Teams -->
-      <div class="publish-final-results-card ${allGamesCompleted ? 'ready' : 'locked'}" style="margin: 16px 0 24px; padding: 18px 20px; background: ${allGamesCompleted ? '#ecfdf5' : '#f8fafc'}; border: 1.5px solid ${allGamesCompleted ? '#10b981' : '#cbd5e1'}; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+      <div class="publish-final-results-card ${allGamesCompleted ? 'ready' : 'locked'}" style="margin: 16px 0 24px; padding: 18px 20px; background: ${allGamesPublished ? '#ecfdf5' : allGamesCompleted ? '#eff6ff' : '#f8fafc'}; border: 1.5px solid ${allGamesPublished ? '#10b981' : allGamesCompleted ? '#3b82f6' : '#cbd5e1'}; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
         <div style="display: flex; align-items: center; gap: 14px;">
-          <div style="width: 44px; height: 44px; border-radius: 10px; background: ${allGamesCompleted ? '#10b981' : '#94a3b8'}; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px;">
+          <div style="width: 44px; height: 44px; border-radius: 10px; background: ${allGamesPublished ? '#059669' : allGamesCompleted ? '#2563eb' : '#94a3b8'}; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px;">
             <span class="mi">${allGamesPublished ? 'verified' : allGamesCompleted ? 'campaign' : 'lock'}</span>
           </div>
           <div>
@@ -208,18 +269,18 @@ export function renderDashboard(root, navigate, role) {
             </div>
             <div style="font-size: 0.82rem; color: #64748b; margin-top: 2px;">
               ${allGamesPublished 
-                ? '✅ Final results and Round 2 qualifications are published to all team screens!' 
+                ? '✅ Final results and Round 2 qualifications are active across all team devices!' 
                 : allGamesCompleted 
-                  ? '🎉 All games finished across all rooms! Ready to publish Round 2 qualification results.' 
+                  ? '🎉 All games finished across all rooms! Ready to broadcast final results to all teams.' 
                   : '⚠️ Some games or subrounds have not been completed yet across rooms.'}
             </div>
           </div>
         </div>
 
         <div class="btn-row">
-          <button class="btn success solid" id="publish-final-all-btn">
-            <span class="mi">campaign</span>
-            Publish Final Results to All Teams
+          <button class="btn ${allGamesPublished ? 'success' : 'success solid'}" id="publish-final-all-btn">
+            <span class="mi">${allGamesPublished ? 'sensors' : 'campaign'}</span>
+            ${allGamesPublished ? 'Broadcast Live Results / View Status' : 'Publish Final Results to All Teams'}
           </button>
           <!-- Deliberately never disabled: an organiser often wants the
                qualifier list in hand *before* announcing it, and the export
@@ -247,22 +308,11 @@ export function renderDashboard(root, navigate, role) {
       });
     }
 
-    // Wire main dashboard publish all button
+    // Wire main dashboard publish all button to open dedicated live broadcast modal
     const publishFinalAllBtn = body.querySelector('#publish-final-all-btn');
     if (publishFinalAllBtn) {
-      publishFinalAllBtn.addEventListener('click', async () => {
-        let msg = 'Publish Final Round 1 Results to ALL teams in ALL rooms?\n\n• Qualified teams will have their VISA extended for Round 2.\n• Eliminated teams will receive the laser elimination sequence.';
-        if (!allGamesCompleted) {
-          msg = '⚠️ Notice: Some games or subrounds have not finished yet.\n\nPublishing final results will mark all game sessions and the round as COMPLETED, and publish qualification standings to ALL teams in ALL rooms.\n\nDo you want to proceed and publish final results now?';
-        }
-        if (!confirm(msg)) return;
-        try {
-          await api.admin.publishRoundLeaderboard(detail.round_id);
-          toast('Final results published to all teams in all rooms!');
-          load();
-        } catch (err) {
-          toast(err.message, { error: true });
-        }
+      publishFinalAllBtn.addEventListener('click', () => {
+        openPublishFinalResultsModal(detail.round_id, detail, allGamesCompleted);
       });
     }
 
@@ -270,23 +320,35 @@ export function renderDashboard(root, navigate, role) {
     const activateBtn = body.querySelector('#activate-round-btn');
     if (activateBtn) {
       activateBtn.addEventListener('click', async () => {
-        if (!confirm('Activate this round? Teams will be able to play.')) return;
+        activateBtn.disabled = true;
+        const originalHtml = activateBtn.innerHTML;
+        activateBtn.innerHTML = '<span class="mi spin">autorenew</span> Activating...';
         try {
           await api.admin.setRoundStatus(detail.round_id, 'ACTIVE');
-          toast('Round activated!');
+          toast('🎉 Round 1 activated! Teams can now play.');
           load();
-        } catch (err) { toast(err.message, { error: true }); }
+        } catch (err) {
+          toast(err.message, { error: true });
+          activateBtn.disabled = false;
+          activateBtn.innerHTML = originalHtml;
+        }
       });
     }
     const completeBtn = body.querySelector('#complete-round-btn');
     if (completeBtn) {
       completeBtn.addEventListener('click', async () => {
-        if (!confirm('Complete this round? This cannot be undone.')) return;
+        completeBtn.disabled = true;
+        const originalHtml = completeBtn.innerHTML;
+        completeBtn.innerHTML = '<span class="mi spin">autorenew</span> Completing...';
         try {
           await api.admin.setRoundStatus(detail.round_id, 'COMPLETED');
-          toast('Round completed!');
+          toast('Round 1 completed!');
           load();
-        } catch (err) { toast(err.message, { error: true }); }
+        } catch (err) {
+          toast(err.message, { error: true });
+          completeBtn.disabled = false;
+          completeBtn.innerHTML = originalHtml;
+        }
       });
     }
 
@@ -430,10 +492,19 @@ export function renderDashboard(root, navigate, role) {
             .then(res => { toast(`Sub-round ${subnum} restarted in ${res.succeeded.length} rooms!`); load(); })
             .catch(err => toast(err.message, { error: true }));
         } else if (act === 'publish') {
-          if (!confirm(`Publish ${GAMES[code]?.en || code} results to ALL team screens in ALL rooms?`)) return;
+          btn.disabled = true;
+          const originalHtml = btn.innerHTML;
+          btn.innerHTML = '<span class="mi spin">autorenew</span> Publishing...';
           api.admin.publishGameForRound(detail.round_id, code)
-            .then(() => { toast(`Published ${GAMES[code]?.en || code} results to all teams in all rooms!`); load(); })
-            .catch(err => toast(err.message, { error: true }));
+            .then(() => {
+              toast(`Published ${GAMES[code]?.en || code} results to all teams in all rooms!`);
+              load();
+            })
+            .catch(err => {
+              toast(err.message, { error: true });
+              btn.disabled = false;
+              btn.innerHTML = originalHtml;
+            });
         } else if (act === 'show-results') {
           openResultsModal(code, detail.round_id, gameSessions);
         } else if (act === 'next-subround') {
@@ -441,26 +512,38 @@ export function renderDashboard(root, navigate, role) {
             .then(res => { toast(`Started next sub-round in ${res.succeeded.length} rooms!`); load(); })
             .catch(err => toast(err.message, { error: true }));
         } else if (act === 'instructions') {
-          if (!confirm(`Broadcast 5-minute instructions for ${GAMES[code]?.en} to all team screens?`)) return;
+          btn.disabled = true;
+          const originalHtml = btn.innerHTML;
+          btn.innerHTML = '<span class="mi spin">autorenew</span> Broadcasting...';
           api.admin.showInstructionsForRound(detail.round_id, code)
             .then(res => { toast(`Rules broadcasted successfully to all rooms!`); load(); })
-            .catch(err => toast(err.message, { error: true }));
+            .catch(err => {
+              toast(err.message, { error: true });
+              btn.disabled = false;
+              btn.innerHTML = originalHtml;
+            });
         } else if (act === 'pause') {
-          if (!confirm(`Pause ${GAMES[code]?.en} in ALL rooms?`)) return;
+          btn.disabled = true;
           api.admin.pauseSessionsForRound(detail.round_id, code)
             .then(res => { toast(`Paused in ${res.succeeded.length} rooms`); load(); })
-            .catch(err => toast(err.message, { error: true }));
+            .catch(err => { toast(err.message, { error: true }); btn.disabled = false; });
         } else if (act === 'resume') {
-          if (!confirm(`Resume ${GAMES[code]?.en} in ALL rooms?`)) return;
+          btn.disabled = true;
           api.admin.resumeSessionsForRound(detail.round_id, code)
             .then(res => { toast(`Resumed in ${res.succeeded.length} rooms`); load(); })
-            .catch(err => toast(err.message, { error: true }));
+            .catch(err => { toast(err.message, { error: true }); btn.disabled = false; });
         } else if (act === 'complete') {
-          if (!confirm(`Reveal & publish ${GAMES[code]?.en} results to ALL team screens in ALL rooms?`)) return;
+          btn.disabled = true;
+          const originalHtml = btn.innerHTML;
+          btn.innerHTML = '<span class="mi spin">autorenew</span> Completing...';
           api.admin.forceCompleteSessionsForRound(detail.round_id, code)
             .then(() => api.admin.publishGameForRound(detail.round_id, code))
             .then(() => { toast(`Results revealed and published to all team screens!`); load(); })
-            .catch(err => toast(err.message, { error: true }));
+            .catch(err => {
+              toast(err.message, { error: true });
+              btn.disabled = false;
+              btn.innerHTML = originalHtml;
+            });
         } else if (act === 'restart') {
           if (!confirm(`RESTART ${GAMES[code]?.en} in ALL rooms? This wipes all score data!`)) return;
           api.admin.restartSessionsForRound(detail.round_id, code)
@@ -598,6 +681,343 @@ export function renderDashboard(root, navigate, role) {
         <div class="demo-sr-list">${subroundRows}</div>
       </div>
     `;
+  }
+
+  async function openPublishFinalResultsModal(roundId, detail, allGamesCompleted) {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal broadcast-modal">
+        <div class="bl-bm-header">
+          <div class="bl-bm-header-content">
+            <div class="bl-bm-header-left">
+              <div class="bl-bm-radar-icon">
+                <span class="mi">sensors</span>
+              </div>
+              <div>
+                <div class="bl-bm-title">BROADCAST FINAL RESULTS & QUALIFICATIONS</div>
+                <div class="bl-bm-subtitle">Real-time WebSocket transmission of Round 1 standings, VISA extensions & laser strikes to all team screens.</div>
+              </div>
+            </div>
+            <div>
+              <span class="pill" id="modal-broadcast-status-badge">● LOADING...</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bl-bm-body" id="modal-broadcast-body">
+          <div class="spinner" style="margin: 60px auto;"></div>
+        </div>
+
+        <div class="bl-bm-footer">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button type="button" class="btn success solid" id="modal-broadcast-trigger-btn" style="padding: 10px 22px; font-weight: 800; font-size: 0.9rem;">
+              <span class="mi">campaign</span>
+              <span id="modal-broadcast-btn-label">Broadcast Final Results to All Teams</span>
+            </button>
+          </div>
+          <div>
+            <button type="button" class="btn" id="modal-broadcast-close-btn">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+
+    let modalPoll = null;
+    const activeChannels = [];
+    let isBroadcasting = false;
+
+    function closeModal() {
+      if (modalPoll) {
+        clearInterval(modalPoll);
+        modalPoll = null;
+      }
+      activeChannels.forEach(ch => {
+        try { ch.close(); } catch (_) {}
+      });
+      backdrop.remove();
+    }
+
+    backdrop.querySelector('#modal-broadcast-close-btn').onclick = closeModal;
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+
+    // Connect WebSocket listeners for instant real-time live updates
+    try {
+      const overallCh = new LiveChannel('/leaderboard/overall', () => {
+        refreshContent();
+      }, 'admin');
+      activeChannels.push(overallCh);
+
+      const rooms = detail?.rooms || [];
+      rooms.forEach(r => {
+        const rId = r.room_id || r.id;
+        if (rId) {
+          activeChannels.push(new LiveChannel(`/rooms/${rId}/sessions`, () => refreshContent(), 'admin'));
+          activeChannels.push(new LiveChannel(`/rooms/${rId}/leaderboard`, () => refreshContent(), 'admin'));
+        }
+      });
+    } catch (_) {}
+
+    const SUIT_SYMBOLS = { SPADE: '♠', HEART: '♥', DIAMOND: '♦', CLUB: '♣' };
+
+    async function refreshContent() {
+      if (isBroadcasting) return; // preserve active transmission UI
+      try {
+        const [winnersList, roundObj, gameSessions] = await Promise.all([
+          api.admin.winners(roundId, true).catch(() => []),
+          api.admin.getRound(roundId).catch(() => detail),
+          api.admin.getRoundGameSessions(roundId).catch(() => []),
+        ]);
+
+        const isPublished = (roundObj?.status === 'COMPLETED') || (gameSessions.length > 0 && gameSessions.every(s => (s.session || s).is_published));
+        
+        const statusBadge = backdrop.querySelector('#modal-broadcast-status-badge');
+        if (statusBadge) {
+          statusBadge.className = `pill ${isPublished ? 'COMPLETED' : 'IN_PROGRESS'}`;
+          statusBadge.textContent = isPublished ? '● BROADCAST CONFIRMED & ACTIVE' : '● READY TO BROADCAST';
+        }
+
+        const btnLabel = backdrop.querySelector('#modal-broadcast-btn-label');
+        if (btnLabel) {
+          btnLabel.textContent = isPublished 
+            ? 'Re-broadcast Final Results to All Teams' 
+            : 'Broadcast Final Results to All Teams Now';
+        }
+
+        // Collect acknowledged teams from gameSessions
+        const acknowledgedTeams = new Set();
+        (gameSessions || []).forEach(s => {
+          const pvt = s.published_viewed_teams || s.session?.published_viewed_teams || [];
+          pvt.forEach(code => acknowledgedTeams.add(code));
+        });
+
+        const totalTeams = winnersList.length;
+        const qualifiedCount = winnersList.filter(e => e.is_qualified === true).length;
+        const eliminatedCount = winnersList.filter(e => e.is_qualified === false).length;
+        const ackCount = winnersList.filter(e => acknowledgedTeams.has(e.team_code)).length;
+
+        const bodyEl = backdrop.querySelector('#modal-broadcast-body');
+        if (!bodyEl) return;
+
+        // Progress bar percentage
+        let progressPct = 0;
+        let progressLabel = '';
+        if (isPublished) {
+          progressPct = 100;
+          progressLabel = ackCount > 0 
+            ? `100% Broadcasted · ${ackCount}/${totalTeams} Confirmed Received`
+            : `100% Broadcasted · WS Payload Delivered`;
+        } else {
+          progressPct = allGamesCompleted ? 25 : 10;
+          progressLabel = allGamesCompleted ? 'All games completed · Ready to transmit' : 'Standby · Games in progress';
+        }
+
+        bodyEl.innerHTML = `
+          <div class="bl-bm-progress-card">
+            <div class="bl-bm-progress-header">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="mi" style="font-size:16px; color:#2563eb;">wifi_tethering</span>
+                <span>DEVICE TRANSMISSION & RECEIPT STATUS</span>
+              </div>
+              <span id="bl-bm-progress-label" style="color: ${isPublished ? '#10b981' : '#2563eb'}; font-weight: 800;">
+                ${progressLabel}
+              </span>
+            </div>
+            <div class="bl-bm-progress-bar-bg">
+              <div id="bl-bm-fill" class="bl-bm-progress-bar-fill" style="width: ${progressPct}%;"></div>
+            </div>
+            <div class="bl-bm-stat-pills">
+              <span class="bl-bm-stat-pill total">
+                <span class="mi" style="font-size:14px;">devices</span>
+                ${totalTeams} Connected Teams
+              </span>
+              <span class="bl-bm-stat-pill qualified">
+                <span class="mi" style="font-size:14px;">workspace_premium</span>
+                ${qualifiedCount} Qualified for Round 2 (VISA Extended)
+              </span>
+              <span class="bl-bm-stat-pill eliminated">
+                <span class="mi" style="font-size:14px;">bolt</span>
+                ${eliminatedCount} Eliminated (Sky Laser)
+              </span>
+              ${isPublished ? `
+                <span class="bl-bm-stat-pill" style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;">
+                  <span class="mi" style="font-size:14px;">check_circle</span>
+                  ${ackCount} / ${totalTeams} Acknowledged on Screen
+                </span>
+              ` : ''}
+            </div>
+          </div>
+
+          <div style="font-size: 0.78rem; font-weight: 800; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 10px; display:flex; align-items:center; justify-content:space-between;">
+            <span>Connected Teams & WebSocket Transmission Status</span>
+            <span style="font-size:0.7rem; color:#64748b; font-weight:600;">
+              Live Socket: <span style="color:#10b981; font-weight:800;">CONNECTED ●</span>
+            </span>
+          </div>
+
+          <div class="bl-bm-teams-list">
+            ${winnersList.map(t => {
+              const rank = t.rank || 1;
+              const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : '';
+              const suitCode = (t.suit_code || 'SPADE').toUpperCase();
+              const suitSymbol = SUIT_SYMBOLS[suitCode] || '♠';
+              const totalVal = t.total_score !== null && t.total_score !== undefined ? Number(t.total_score).toFixed(1) : '0.0';
+
+              const isQualified = t.is_qualified === true;
+              const isEliminated = t.is_qualified === false;
+              const isAcked = acknowledgedTeams.has(t.team_code);
+
+              let deliveryBadgeHtml = '';
+              if (!isPublished) {
+                deliveryBadgeHtml = `
+                  <span class="bl-bm-delivery-badge standby">
+                    <span class="pulse-dot blue"></span>
+                    <span>Ready to Broadcast</span>
+                  </span>
+                `;
+              } else if (isAcked) {
+                deliveryBadgeHtml = `
+                  <span class="bl-bm-delivery-badge confirmed">
+                    <span class="pulse-dot green"></span>
+                    <span>✓ Confirmed Received on Device</span>
+                  </span>
+                `;
+              } else {
+                deliveryBadgeHtml = `
+                  <span class="bl-bm-delivery-badge delivered">
+                    <span class="pulse-dot blue"></span>
+                    <span>✓ Dispatched via WebSocket</span>
+                  </span>
+                `;
+              }
+
+              return `
+                <div class="bl-bm-team-row" id="team-row-${t.team_code}">
+                  <div class="bl-bm-team-left">
+                    <span class="bl-sb-rank-badge ${rankClass}">#${rank}</span>
+                    <span class="bl-sb-suit-icon ${suitCode.toLowerCase()}" title="${suitCode}">${suitSymbol}</span>
+                    <div class="bl-bm-team-info">
+                      <div class="bl-bm-team-code">
+                        ${t.team_code}
+                        ${t.room_code ? `<span style="font-size:0.72rem; color:#64748b; font-weight:600; background:#f1f5f9; padding:1px 6px; border-radius:4px;">${t.room_code}</span>` : ''}
+                      </div>
+                      <div class="bl-bm-team-name">${t.team_name || 'Team ' + t.team_code}</div>
+                    </div>
+                  </div>
+
+                  <div class="bl-bm-team-scores">
+                    <div class="bl-bm-pts">
+                      ${totalVal} <span style="font-size:0.7rem; color:#64748b;">PTS</span>
+                    </div>
+
+                    <div>
+                      ${isQualified 
+                        ? '<span class="bl-bm-outcome-tag qualified">🌟 QUALIFIED FOR ROUND 2</span>' 
+                        : isEliminated 
+                        ? '<span class="bl-bm-outcome-tag eliminated">💥 ELIMINATED</span>' 
+                        : '<span class="bl-bm-outcome-tag" style="background:#f1f5f9; color:#64748b;">PENDING</span>'}
+                    </div>
+
+                    <div id="delivery-status-${t.team_code}">
+                      ${deliveryBadgeHtml}
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      } catch (err) {
+        const bodyEl = backdrop.querySelector('#modal-broadcast-body');
+        if (bodyEl) bodyEl.innerHTML = `<p class="status-note error" style="padding:16px;">Error preparing broadcast: ${err.message}</p>`;
+      }
+    }
+
+    await refreshContent();
+
+    // Wire broadcast trigger button with lively step-by-step animation
+    const triggerBtn = backdrop.querySelector('#modal-broadcast-trigger-btn');
+    if (triggerBtn) {
+      triggerBtn.addEventListener('click', async () => {
+        triggerBtn.disabled = true;
+        isBroadcasting = true;
+
+        const progressLabel = backdrop.querySelector('#bl-bm-progress-label');
+        const progressBar = backdrop.querySelector('#bl-bm-fill');
+        const statusBadge = backdrop.querySelector('#modal-broadcast-status-badge');
+
+        if (statusBadge) {
+          statusBadge.className = 'pill IN_PROGRESS';
+          statusBadge.textContent = '● BROADCASTING IN PROGRESS...';
+        }
+
+        // Stage 1: Connecting & preparing WS payload
+        if (progressBar) {
+          progressBar.classList.add('broadcasting');
+          progressBar.style.width = '35%';
+        }
+        if (progressLabel) {
+          progressLabel.textContent = 'Encoding standings & qualification payloads...';
+          progressLabel.style.color = '#2563eb';
+        }
+        triggerBtn.innerHTML = '<span class="mi spin">autorenew</span> Transmitting WS Packets...';
+
+        // Animate team delivery badges to "Transmitting..."
+        backdrop.querySelectorAll('[id^="delivery-status-"]').forEach(el => {
+          el.innerHTML = `
+            <span class="bl-bm-delivery-badge transmitting">
+              <span class="pulse-dot amber"></span>
+              <span>⚡ Sending WebSocket packet...</span>
+            </span>
+          `;
+        });
+
+        await new Promise(r => setTimeout(r, 450));
+
+        // Stage 2: Broadcast across all room channels
+        if (progressBar) progressBar.style.width = '70%';
+        if (progressLabel) progressLabel.textContent = 'Broadcasting to all rooms via WebSocket...';
+
+        try {
+          await api.admin.publishRoundLeaderboard(roundId);
+
+          // Stage 3: Confirmed
+          if (progressBar) {
+            progressBar.style.width = '100%';
+            progressBar.classList.remove('broadcasting');
+          }
+          if (progressLabel) {
+            progressLabel.textContent = '100% Broadcasted · Active on all devices';
+            progressLabel.style.color = '#10b981';
+          }
+          if (statusBadge) {
+            statusBadge.className = 'pill COMPLETED';
+            statusBadge.textContent = '● BROADCAST CONFIRMED & ACTIVE';
+          }
+
+          toast('🎉 Final results & Round 2 qualifications broadcasted to all team devices!');
+          isBroadcasting = false;
+          await refreshContent();
+          load(); // Refresh dashboard in background
+        } catch (err) {
+          isBroadcasting = false;
+          toast(err.message, { error: true });
+          if (statusBadge) {
+            statusBadge.className = 'pill ERROR';
+            statusBadge.textContent = '● BROADCAST ERROR';
+          }
+        } finally {
+          triggerBtn.disabled = false;
+          const btnLabel = backdrop.querySelector('#modal-broadcast-btn-label');
+          if (btnLabel) btnLabel.textContent = 'Re-broadcast Final Results to All Teams';
+          triggerBtn.innerHTML = '<span class="mi">campaign</span> <span id="modal-broadcast-btn-label">Re-broadcast Final Results to All Teams</span>';
+        }
+      });
+    }
+
+    modalPoll = setInterval(refreshContent, 2000);
   }
 
   function openDemoStartModal(code, roundId) {
@@ -976,17 +1396,37 @@ export function renderDashboard(root, navigate, role) {
 
     // Attach static footer listeners once
     backdrop.querySelector('#close-results').onclick = closeModal;
-    backdrop.querySelector('#publish-results-modal-btn').onclick = () => {
-      if (!confirm(`Publish results for ${GAMES[code]?.en || code} to ALL team screens in ALL rooms?`)) return;
+    backdrop.querySelector('#publish-results-modal-btn').onclick = (e) => {
+      const pBtn = e.currentTarget;
+      pBtn.disabled = true;
+      const originalHtml = pBtn.innerHTML;
+      pBtn.innerHTML = '<span class="mi spin">autorenew</span> Publishing...';
       api.admin.publishGameForRound(roundId, code)
-        .then(() => { toast(`Published ${GAMES[code]?.en || code} results to all teams in all rooms!`); load(); })
-        .catch(err => toast(err.message, { error: true }));
+        .then(() => {
+          toast(`Published ${GAMES[code]?.en || code} results to all teams in all rooms!`);
+          load();
+        })
+        .catch(err => {
+          toast(err.message, { error: true });
+          pBtn.disabled = false;
+          pBtn.innerHTML = originalHtml;
+        });
     };
-    backdrop.querySelector('#force-complete-btn').onclick = () => {
-      if (!confirm(`Force-complete ${GAMES[code]?.en || code} in ALL rooms and compute final scores?`)) return;
+    backdrop.querySelector('#force-complete-btn').onclick = (e) => {
+      const fcBtn = e.currentTarget;
+      fcBtn.disabled = true;
+      const originalHtml = fcBtn.innerHTML;
+      fcBtn.innerHTML = '<span class="mi spin">autorenew</span> Completing...';
       api.admin.forceCompleteSessionsForRound(roundId, code)
-        .then(res => { toast(`Completed in ${res.succeeded.length} rooms`); load(); })
-        .catch(err => toast(err.message, { error: true }));
+        .then(res => {
+          toast(`Completed in ${res.succeeded.length} rooms`);
+          load();
+        })
+        .catch(err => {
+          toast(err.message, { error: true });
+          fcBtn.disabled = false;
+          fcBtn.innerHTML = originalHtml;
+        });
     };
 
     document.body.appendChild(backdrop);

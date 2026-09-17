@@ -704,7 +704,7 @@ async def publish_game_results_for_round(
     round_id: uuid.UUID,
     game_code: str,
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(require_role(AdminRole.SUPER_ADMIN)),
+    _admin=Depends(require_role(AdminRole.ROOM_ADMIN)),
 ):
     """Publishes results for ONLY this specific game_code across all rooms in this round.
     Allows teams to view that game's scores without triggering final round qualification."""
@@ -726,6 +726,10 @@ async def publish_game_results_for_round(
     ).scalars().all()
 
     for s in sessions:
+        try:
+            await jobs._maybe_close_session(s.session_id, force=True)
+        except Exception as exc:
+            logger.warning("Error force-closing session %s on publish: %s", s.session_id, exc)
         s.is_published = True
         s.status = SessionStatus.COMPLETED
     await db.commit()

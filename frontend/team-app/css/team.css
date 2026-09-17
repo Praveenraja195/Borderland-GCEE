@@ -917,6 +917,8 @@ body:has(.has-leaderboard) {
 .bl-lb-row.suit-heart { border-left: 3.5px solid #ff3b47; }
 .bl-lb-row.suit-diamond { border-left: 3.5px solid #ff643d; }
 .bl-lb-row.suit-club { border-left: 3.5px solid #38bdf8; }
+.bl-lb-row.suit-unassigned { border-left: 3.5px solid rgba(255, 255, 255, 0.15); }
+.suit-unassigned { color: rgba(255, 255, 255, 0.3) !important; }
 
 /* Rank Cell */
 .bl-col-rank {

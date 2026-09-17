@@ -274,14 +274,14 @@ export function renderLeaderboard(root, navigate) {
       );
       if (foundIdx !== -1) {
         myEntry = sortedRows[foundIdx];
-        myRank = myEntry[rankKey] ?? (foundIdx + 1);
+        myRank = myEntry[rankKey] ?? null;
         mySuit = getTeamSuit(myEntry, true);
       }
     }
 
     currentMyEntry = myEntry;
     if (myEntry) {
-      if (dockRankEl) dockRankEl.textContent = `#${myRank}`;
+      if (dockRankEl) dockRankEl.textContent = myRank ? `#${myRank}` : '#—';
       if (dockNameEl) dockNameEl.textContent = myEntry.team_name || myEntry.team_code;
       if (dockPtsEl) dockPtsEl.textContent = `${formatScore(myEntry.total_score)} PTS`;
     }
@@ -294,9 +294,9 @@ export function renderLeaderboard(root, navigate) {
             <div class="bl-my-status-badge">▶ YOUR TEAM / 参加チーム</div>
             <div class="bl-my-status-name">${myEntry.team_name || myEntry.team_code}</div>
             <div class="bl-my-status-metrics">
-              <span class="bl-my-stat-pill">RANK <strong class="val">#${myRank}</strong></span>
+              <span class="bl-my-stat-pill">RANK <strong class="val">${myRank ? `#${myRank}` : '—'}</strong></span>
               <span class="bl-my-stat-pill">PTS <strong class="val">${formatScore(myEntry.total_score)}</strong></span>
-              <span class="bl-my-stat-pill suit-color-${mySuit.toLowerCase()}">${SUIT_SYMBOLS[mySuit] || ''}</span>
+              <span class="bl-my-stat-pill ${mySuit ? `suit-color-${mySuit.toLowerCase()}` : ''}">${mySuit ? (SUIT_SYMBOLS[mySuit] || '—') : 'NO SUIT'}</span>
             </div>
           </div>
           <button class="bl-my-locate-btn" id="bl-locate-me-btn" type="button" aria-label="Locate your team in leaderboard">
@@ -345,8 +345,8 @@ export function renderLeaderboard(root, navigate) {
         locateBtn.addEventListener('click', locateMyTeam);
       }
 
-      sortedRows.forEach((r, idx) => {
-        const rank = r[rankKey] ?? (idx + 1);
+      sortedRows.forEach((r) => {
+        const rank = r[rankKey] ?? null;
         const rowEl = createRowElement(r, rank, false, false, false, false, false);
         rowList.appendChild(rowEl);
 
@@ -380,7 +380,7 @@ export function renderLeaderboard(root, navigate) {
     if (myEntry) {
       if (existingCard) {
         const rankValEl = existingCard.querySelector('.bl-my-stat-pill .val');
-        if (rankValEl) rankValEl.textContent = `#${myRank}`;
+        if (rankValEl) rankValEl.textContent = myRank ? `#${myRank}` : '—';
         const ptsValEl = existingCard.querySelectorAll('.bl-my-stat-pill .val')[1];
         if (ptsValEl) ptsValEl.textContent = formatScore(myEntry.total_score);
       } else {
@@ -420,8 +420,8 @@ export function renderLeaderboard(root, navigate) {
     });
 
     // 3. Update DOM rows & reorder
-    sortedRows.forEach((r, idx) => {
-      const rank = r[rankKey] ?? (idx + 1);
+    sortedRows.forEach((r) => {
+      const rank = r[rankKey] ?? null;
       const chg = scoreChanges.get(r.team_code) || {};
 
       let rowEl = rowList.querySelector(`.bl-lb-row[data-team-code="${r.team_code}"]`);
@@ -521,9 +521,7 @@ export function renderLeaderboard(root, navigate) {
       code = (localStorage.getItem('bl_team_suit') || localStorage.getItem('bl_suit') || '').toUpperCase();
     }
     if (!code || !SUIT_SYMBOLS[code]) {
-      const fallbackSuits = ['SPADE', 'HEART', 'DIAMOND', 'CLUB'];
-      const seed = r.team_code ? r.team_code.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) : 0;
-      code = fallbackSuits[seed % 4];
+      return null;
     }
     return code;
   }
@@ -536,9 +534,10 @@ export function renderLeaderboard(root, navigate) {
       r.is_current_team
     );
     const suitCode = getTeamSuit(r, isMe);
-    const rankClass = rank === 1 ? 'rank-1' : rank <= 3 ? 'rank-top3' : '';
+    const rankClass = rank === 1 ? 'rank-1' : (rank && rank <= 3) ? 'rank-top3' : '';
+    const suitClass = suitCode ? `suit-${suitCode.toLowerCase()}` : 'suit-unassigned';
     const el = document.createElement('div');
-    el.className = `bl-lb-row suit-${suitCode.toLowerCase()} ${rankClass} ${isMe ? 'me' : ''}`;
+    el.className = `bl-lb-row ${suitClass} ${rankClass} ${isMe ? 'me' : ''}`;
     el.dataset.teamCode = r.team_code;
     updateRowElement(el, r, rank, totalChg, mmChg, asChg, kdChg, jhChg);
     return el;
@@ -552,15 +551,16 @@ export function renderLeaderboard(root, navigate) {
       r.is_current_team
     );
     const suitCode = getTeamSuit(r, isMe);
-    const suitSymbol = SUIT_SYMBOLS[suitCode] || '♠';
+    const suitSymbol = suitCode ? (SUIT_SYMBOLS[suitCode] || '—') : '—';
+    const suitClass = suitCode ? `suit-${suitCode.toLowerCase()}` : 'suit-unassigned';
 
-    const rankClass = rank === 1 ? 'rank-1' : rank <= 3 ? 'rank-top3' : '';
-    el.className = `bl-lb-row suit-${suitCode.toLowerCase()} ${rankClass} ${isMe ? 'me' : ''}`;
+    const rankClass = rank === 1 ? 'rank-1' : (rank && rank <= 3) ? 'rank-top3' : '';
+    el.className = `bl-lb-row ${suitClass} ${rankClass} ${isMe ? 'me' : ''}`;
 
     const youBadge = isMe ? '<span class="bl-you-badge">[ YOU ]</span>' : '';
     const totalVal = formatScore(r.total_score);
     const displayName = r.team_name || r.team_code;
-    const rankDisplay = formatRank(rank).padStart(2, '0');
+    const rankDisplay = rank ? formatRank(rank).padStart(2, '0') : '—';
 
     el.innerHTML = `
       <div class="bl-col-rank">
@@ -579,7 +579,7 @@ export function renderLeaderboard(root, navigate) {
         <span class="bl-pts-unit">PTS</span>
       </div>
 
-      <div class="bl-col-suit suit-color-${suitCode.toLowerCase()}">
+      <div class="bl-col-suit ${suitCode ? `suit-color-${suitCode.toLowerCase()}` : 'suit-unassigned'}">
         <span class="bl-suit-symbol">${suitSymbol}</span>
       </div>
     `;

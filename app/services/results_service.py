@@ -158,6 +158,15 @@ async def recompute_room_results(db: AsyncSession, *, room_id: uuid.UUID) -> Non
                     )
 
         elif game.code == "KING_DIAMOND":
+            total_rounds_res = (
+                await db.execute(
+                    select(func.count(KingDiamondRound.round_id)).where(
+                        KingDiamondRound.session_id == session.session_id
+                    )
+                )
+            ).scalar() or 5
+            total_base = float(total_rounds_res * settings.king_diamond_base_points)
+
             closed_rounds = (
                 (
                     await db.execute(
@@ -185,7 +194,7 @@ async def recompute_room_results(db: AsyncSession, *, room_id: uuid.UUID) -> Non
                 ).all()
                 penalties = {row[0]: float(row[1]) for row in pen_res}
             for tid in team_ids:
-                tot = max(0.0, 30.0 - penalties.get(tid, 0.0))
+                tot = max(0.0, total_base - penalties.get(tid, 0.0))
                 gs = (
                     await db.execute(
                         select(GameScore).where(

@@ -791,6 +791,13 @@ async def restart_subround_by_number(
 
     elif game.code == "KING_DIAMOND":
         from app.models.king_diamond import KingDiamondRound, KingDiamondSubmission
+        total_rounds_cnt = (
+            await db.execute(
+                select(func.count(KingDiamondRound.round_id)).where(KingDiamondRound.session_id == session_id)
+            )
+        ).scalar() or 5
+        total_base = float(total_rounds_cnt * settings.king_diamond_base_points)
+
         closed_rounds = (await db.execute(select(KingDiamondRound).where(KingDiamondRound.session_id == session_id, KingDiamondRound.is_closed == True))).scalars().all()
         closed_rids = [r.round_id for r in closed_rounds]
         penalties = {}
@@ -802,7 +809,7 @@ async def restart_subround_by_number(
             )).all()
             penalties = {row[0]: float(row[1]) for row in pen_res}
         for tid in team_ids:
-            tot = max(0.0, 30.0 - penalties.get(tid, 0.0))
+            tot = max(0.0, total_base - penalties.get(tid, 0.0))
             gs = (await db.execute(select(GameScore).where(GameScore.session_id == session_id, GameScore.team_id == tid))).scalar_one_or_none()
             if gs:
                 gs.score = float(tot)

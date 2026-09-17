@@ -229,10 +229,16 @@ export function renderRoundDetail(root, navigate, roundId) {
         } else if (act === 'show-results') {
           openResultsModal(code, roundId, gameSessions);
         } else if (act === 'publish') {
-          if (!confirm(`Publish ${GAMES[code]?.en || code} results to ALL team screens in ALL rooms?`)) return;
+          btn.disabled = true;
+          const originalHtml = btn.innerHTML;
+          btn.innerHTML = '<span class="mi spin">autorenew</span> Publishing...';
           api.admin.publishGameForRound(roundId, code)
             .then(() => { toast(`Published ${GAMES[code]?.en || code} results to all team screens!`); load(); })
-            .catch((err) => toast(err.message, { error: true }));
+            .catch((err) => {
+              toast(err.message, { error: true });
+              btn.disabled = false;
+              btn.innerHTML = originalHtml;
+            });
         } else if (act === 'instructions') {
           if (!confirm(`Broadcast 5-minute instructions for ${GAMES[code]?.en} to all team screens?`)) return;
           api.admin.showInstructionsForRound(roundId, code)
@@ -751,17 +757,31 @@ export function renderRoundDetail(root, navigate, roundId) {
     }
 
     backdrop.querySelector('#close-results').onclick = closeModal;
-    backdrop.querySelector('#publish-results-modal-btn').onclick = () => {
-      if (!confirm(`Publish results for ${GAMES[code]?.en || code} to ALL team screens in ALL rooms?`)) return;
+    backdrop.querySelector('#publish-results-modal-btn').onclick = (e) => {
+      const pBtn = e.currentTarget;
+      pBtn.disabled = true;
+      const originalHtml = pBtn.innerHTML;
+      pBtn.innerHTML = '<span class="mi spin">autorenew</span> Publishing...';
       api.admin.publishGameForRound(roundId, code)
-        .then(() => { toast(`Published ${GAMES[code]?.en || code} results to all teams in all rooms!`); load(); })
-        .catch(err => toast(err.message, { error: true }));
+        .then(() => { toast(`Published ${GAMES[code]?.en || code} results to all team screens!`); load(); })
+        .catch(err => {
+          toast(err.message, { error: true });
+          pBtn.disabled = false;
+          pBtn.innerHTML = originalHtml;
+        });
     };
-    backdrop.querySelector('#force-complete-btn').onclick = () => {
-      if (!confirm(`Force-complete ${GAMES[code]?.en || code} in ALL rooms and compute final scores?`)) return;
+    backdrop.querySelector('#force-complete-btn').onclick = (e) => {
+      const fcBtn = e.currentTarget;
+      fcBtn.disabled = true;
+      const originalHtml = fcBtn.innerHTML;
+      fcBtn.innerHTML = '<span class="mi spin">autorenew</span> Completing...';
       api.admin.forceCompleteSessionsForRound(roundId, code)
         .then(res => { toast(`Completed in ${res.succeeded.length} rooms`); load(); })
-        .catch(err => toast(err.message, { error: true }));
+        .catch(err => {
+          toast(err.message, { error: true });
+          fcBtn.disabled = false;
+          fcBtn.innerHTML = originalHtml;
+        });
     };
 
     document.body.appendChild(backdrop);

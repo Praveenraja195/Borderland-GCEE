@@ -1,6 +1,6 @@
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class RoomLeaderboardEntry(BaseModel):
@@ -19,6 +19,11 @@ class RoomLeaderboardEntry(BaseModel):
     is_qualified: bool | None = None
     is_published: bool = False
 
+    @field_validator("is_published", mode="before")
+    @classmethod
+    def coerce_is_published(cls, v):
+        return False if v is None else bool(v)
+
 
 class OverallLeaderboardEntry(BaseModel):
     team_code: str
@@ -34,6 +39,11 @@ class OverallLeaderboardEntry(BaseModel):
     is_qualified: bool | None = None
     overall_rank: int | None = None
     is_published: bool = False
+
+    @field_validator("is_published", mode="before")
+    @classmethod
+    def coerce_is_published(cls, v):
+        return False if v is None else bool(v)
 
 
 class GameLeaderboardEntry(BaseModel):

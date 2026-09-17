@@ -47,11 +47,11 @@ async def get_room_leaderboard(
             CASE
                 WHEN skd.is_published IS TRUE THEN
                     COALESCE(kd.score, (
-                        SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                         FROM king_diamond_submissions kds
                         JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                         WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                    ), 30.0)::FLOAT
+                    ), 0.0)::FLOAT
                 ELSE NULL
             END AS king_diamond_score,
             CASE
@@ -80,7 +80,7 @@ async def get_room_leaderboard(
                             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                         ), 0) ELSE 0 END, 0) +
                         COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
-                            SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                             FROM king_diamond_submissions kds
                             JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                             WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
@@ -112,7 +112,7 @@ async def get_room_leaderboard(
                                 WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                             ), 0) ELSE 0 END, 0) +
                             COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
-                                SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                                SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                                 FROM king_diamond_submissions kds
                                 JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                                 WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
@@ -132,7 +132,7 @@ async def get_room_leaderboard(
                     COALESCE(rr.is_qualified, FALSE)
                 ELSE NULL
             END AS is_qualified,
-            (rd.status = 'COMPLETED') AS is_published
+            COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
         FROM teams t
         JOIN round1_selections rs ON rs.team_id = t.team_id AND rs.room_id = :room_id
         LEFT JOIN suits st ON st.suit_id = rs.suit_id
@@ -189,11 +189,11 @@ async def get_overall_leaderboard(db: AsyncSession = Depends(get_db), _current_t
             CASE
                 WHEN skd.is_published IS TRUE THEN
                     COALESCE(kd.score, (
-                        SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                         FROM king_diamond_submissions kds
                         JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                         WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                    ), 30.0)::FLOAT
+                    ), 0.0)::FLOAT
                 ELSE NULL
             END AS king_diamond_score,
             CASE
@@ -222,7 +222,7 @@ async def get_overall_leaderboard(db: AsyncSession = Depends(get_db), _current_t
                             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                         ), 0) ELSE 0 END, 0) +
                         COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
-                            SELECT GREATEST(0.0, 30.0 - COALESCE(SUM(kds.round_score), 0))
+                            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                             FROM king_diamond_submissions kds
                             JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                             WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
@@ -273,7 +273,7 @@ async def get_overall_leaderboard(db: AsyncSession = Depends(get_db), _current_t
                     )::INT
                 ELSE NULL
             END AS overall_rank,
-            (rd.status = 'COMPLETED') AS is_published
+            COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
         FROM teams t
         LEFT JOIN round1_selections rs ON rs.team_id = t.team_id
         LEFT JOIN suits st ON st.suit_id = rs.suit_id

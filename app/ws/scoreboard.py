@@ -40,81 +40,120 @@ async def _fetch_room_leaderboard(room_id: uuid.UUID) -> list[dict]:
                 t.team_name,
                 st.code AS team_suit_code,
                 st.symbol AS team_suit_symbol,
-                COALESCE(mm.score, (
-                    SELECT COALESCE(SUM(mr.round_score), 0)
-                    FROM mindmaze_results mr
-                    JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
-                    WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
-                ), 0)::FLOAT AS mindmaze_score,
-                COALESCE(as_.score, (
-                    SELECT COALESCE(SUM(asr.round_score), 0)
-                    FROM ace_spade_results asr
-                    JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
-                    WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-                ), 0)::FLOAT AS ace_spade_score,
-                COALESCE(kd.score, (
-                    SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                    FROM king_diamond_submissions kds
-                    JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                    WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                ), 0.0)::FLOAT AS king_diamond_score,
-                COALESCE(jh.score, (
-                    SELECT COALESCE(SUM(jha.round_score), 0)
-                    FROM jack_heart_answers jha
-                    JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
-                    WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
-                ), 0)::FLOAT AS jack_heart_score,
-                (COALESCE(mm.score, (
-                    SELECT COALESCE(SUM(mr.round_score), 0)
-                    FROM mindmaze_results mr
-                    JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
-                    WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
-                ), 0) + COALESCE(as_.score, (
-                    SELECT COALESCE(SUM(asr.round_score), 0)
-                    FROM ace_spade_results asr
-                    JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
-                    WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-                ), 0) + COALESCE(kd.score, (
-                    SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                    FROM king_diamond_submissions kds
-                    JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                    WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                ), 0.0) + COALESCE(jh.score, (
-                    SELECT COALESCE(SUM(jha.round_score), 0)
-                    FROM jack_heart_answers jha
-                    JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
-                    WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
-                ), 0))::FLOAT AS total_score,
-                RANK() OVER (
-                    PARTITION BY r.room_id
-                    ORDER BY (COALESCE(mm.score, (
+            CASE
+                WHEN smm.is_published IS TRUE THEN
+                    COALESCE(mm.score, (
                         SELECT COALESCE(SUM(mr.round_score), 0)
                         FROM mindmaze_results mr
                         JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
                         WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
-                    ), 0) + COALESCE(as_.score, (
+                    ), 0)::FLOAT
+                ELSE NULL
+            END AS mindmaze_score,
+            CASE
+                WHEN sas.is_published IS TRUE THEN
+                    COALESCE(as_.score, (
                         SELECT COALESCE(SUM(asr.round_score), 0)
                         FROM ace_spade_results asr
                         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-                    ), 0) + COALESCE(kd.score, (
+                    ), 0)::FLOAT
+                ELSE NULL
+            END AS ace_spade_score,
+            CASE
+                WHEN skd.is_published IS TRUE THEN
+                    COALESCE(kd.score, (
                         SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                         FROM king_diamond_submissions kds
                         JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                         WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                    ), 0.0) + COALESCE(jh.score, (
+                    ), 0.0)::FLOAT
+                ELSE NULL
+            END AS king_diamond_score,
+            CASE
+                WHEN sjh.is_published IS TRUE THEN
+                    COALESCE(jh.score, (
                         SELECT COALESCE(SUM(jha.round_score), 0)
                         FROM jack_heart_answers jha
                         JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
                         WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
-                    ), 0)) DESC, t.team_code
-                )::INT AS live_rank,
+                    ), 0)::FLOAT
+                ELSE NULL
+            END AS jack_heart_score,
+            CASE
+                WHEN (smm.is_published IS TRUE OR sas.is_published IS TRUE OR skd.is_published IS TRUE OR sjh.is_published IS TRUE) THEN
+                    (
+                        COALESCE(CASE WHEN smm.is_published IS TRUE THEN COALESCE(mm.score, (
+                            SELECT COALESCE(SUM(mr.round_score), 0)
+                            FROM mindmaze_results mr
+                            JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
+                            WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
+                        ), 0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN sas.is_published IS TRUE THEN COALESCE(as_.score, (
+                            SELECT COALESCE(SUM(asr.round_score), 0)
+                            FROM ace_spade_results asr
+                            JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
+                            WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
+                        ), 0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
+                            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
+                            FROM king_diamond_submissions kds
+                            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                        ), 0.0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
+                            SELECT COALESCE(SUM(jha.round_score), 0)
+                            FROM jack_heart_answers jha
+                            JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
+                            WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
+                        ), 0) ELSE 0 END, 0)
+                    )::FLOAT
+                ELSE NULL
+            END AS total_score,
+            CASE
+                WHEN (rd.status = 'COMPLETED') THEN
+                    COALESCE(rr.is_qualified, FALSE)
+                ELSE NULL
+            END AS is_qualified,
+            CASE
+                WHEN (smm.is_published IS TRUE OR sas.is_published IS TRUE OR skd.is_published IS TRUE OR sjh.is_published IS TRUE) THEN
+                    RANK() OVER (
+                        PARTITION BY r.room_id
+                        ORDER BY (
+                            COALESCE(CASE WHEN smm.is_published IS TRUE THEN COALESCE(mm.score, (
+                                SELECT COALESCE(SUM(mr.round_score), 0)
+                                FROM mindmaze_results mr
+                                JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
+                                WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
+                            ), 0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN sas.is_published IS TRUE THEN COALESCE(as_.score, (
+                                SELECT COALESCE(SUM(asr.round_score), 0)
+                                FROM ace_spade_results asr
+                                JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
+                                WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
+                            ), 0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
+                                SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
+                                FROM king_diamond_submissions kds
+                                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                            ), 0.0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
+                                SELECT COALESCE(SUM(jha.round_score), 0)
+                                FROM jack_heart_answers jha
+                                JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
+                                WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
+                            ), 0) ELSE 0 END, 0)
+                        ) DESC, t.team_code
+                    )::INT
+                ELSE NULL
+            END AS live_rank,
                 CASE
                     WHEN (rd.status = 'COMPLETED') THEN
                         COALESCE(rr.is_qualified, FALSE)
                     ELSE NULL
                 END AS is_qualified,
-                (rd.status = 'COMPLETED') AS is_published
+                COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
             FROM teams t
             JOIN round1_selections rs ON rs.team_id = t.team_id AND rs.room_id = :room_id
             LEFT JOIN suits st ON st.suit_id = rs.suit_id
@@ -148,80 +187,114 @@ async def _fetch_overall_leaderboard() -> list[dict]:
                 st.code AS team_suit_code,
                 st.symbol AS team_suit_symbol,
                 COALESCE(r.room_code, '—') AS room_code,
-                COALESCE(mm.score, (
-                    SELECT COALESCE(SUM(mr.round_score), 0)
-                    FROM mindmaze_results mr
-                    JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
-                    WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
-                ), 0)::FLOAT AS mindmaze_score,
-                COALESCE(as_.score, (
-                    SELECT COALESCE(SUM(asr.round_score), 0)
-                    FROM ace_spade_results asr
-                    JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
-                    WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-                ), 0)::FLOAT AS ace_spade_score,
-                COALESCE(kd.score, (
-                    SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                    FROM king_diamond_submissions kds
-                    JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                    WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                ), 0.0)::FLOAT AS king_diamond_score,
-                COALESCE(jh.score, (
-                    SELECT COALESCE(SUM(jha.round_score), 0)
-                    FROM jack_heart_answers jha
-                    JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
-                    WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
-                ), 0)::FLOAT AS jack_heart_score,
-                (COALESCE(mm.score, (
-                    SELECT COALESCE(SUM(mr.round_score), 0)
-                    FROM mindmaze_results mr
-                    JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
-                    WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
-                ), 0) + COALESCE(as_.score, (
-                    SELECT COALESCE(SUM(asr.round_score), 0)
-                    FROM ace_spade_results asr
-                    JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
-                    WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-                ), 0) + COALESCE(kd.score, (
-                    SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                    FROM king_diamond_submissions kds
-                    JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                    WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                ), 0.0) + COALESCE(jh.score, (
-                    SELECT COALESCE(SUM(jha.round_score), 0)
-                    FROM jack_heart_answers jha
-                    JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
-                    WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
-                ), 0))::FLOAT AS total_score,
-                CASE
-                    WHEN (rd.status = 'COMPLETED') THEN
-                        COALESCE(rr.is_qualified, FALSE)
-                    ELSE NULL
-                END AS is_qualified,
-                RANK() OVER (
-                    ORDER BY (COALESCE(mm.score, (
+            CASE
+                WHEN smm.is_published IS TRUE THEN
+                    COALESCE(mm.score, (
                         SELECT COALESCE(SUM(mr.round_score), 0)
                         FROM mindmaze_results mr
                         JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
                         WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
-                    ), 0) + COALESCE(as_.score, (
+                    ), 0)::FLOAT
+                ELSE NULL
+            END AS mindmaze_score,
+            CASE
+                WHEN sas.is_published IS TRUE THEN
+                    COALESCE(as_.score, (
                         SELECT COALESCE(SUM(asr.round_score), 0)
                         FROM ace_spade_results asr
                         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-                    ), 0) + COALESCE(kd.score, (
+                    ), 0)::FLOAT
+                ELSE NULL
+            END AS ace_spade_score,
+            CASE
+                WHEN skd.is_published IS TRUE THEN
+                    COALESCE(kd.score, (
                         SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
                         FROM king_diamond_submissions kds
                         JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
                         WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                    ), 0.0) + COALESCE(jh.score, (
+                    ), 0.0)::FLOAT
+                ELSE NULL
+            END AS king_diamond_score,
+            CASE
+                WHEN sjh.is_published IS TRUE THEN
+                    COALESCE(jh.score, (
                         SELECT COALESCE(SUM(jha.round_score), 0)
                         FROM jack_heart_answers jha
                         JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
                         WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
-                    ), 0)) DESC, t.team_code
-                )::INT AS overall_rank,
-                (rd.status = 'COMPLETED') AS is_published
+                    ), 0)::FLOAT
+                ELSE NULL
+            END AS jack_heart_score,
+            CASE
+                WHEN (smm.is_published IS TRUE OR sas.is_published IS TRUE OR skd.is_published IS TRUE OR sjh.is_published IS TRUE) THEN
+                    (
+                        COALESCE(CASE WHEN smm.is_published IS TRUE THEN COALESCE(mm.score, (
+                            SELECT COALESCE(SUM(mr.round_score), 0)
+                            FROM mindmaze_results mr
+                            JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
+                            WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
+                        ), 0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN sas.is_published IS TRUE THEN COALESCE(as_.score, (
+                            SELECT COALESCE(SUM(asr.round_score), 0)
+                            FROM ace_spade_results asr
+                            JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
+                            WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
+                        ), 0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
+                            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
+                            FROM king_diamond_submissions kds
+                            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                        ), 0.0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
+                            SELECT COALESCE(SUM(jha.round_score), 0)
+                            FROM jack_heart_answers jha
+                            JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
+                            WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
+                        ), 0) ELSE 0 END, 0)
+                    )::FLOAT
+                ELSE NULL
+            END AS total_score,
+            CASE
+                WHEN (rd.status = 'COMPLETED') THEN
+                    COALESCE(rr.is_qualified, FALSE)
+                ELSE NULL
+            END AS is_qualified,
+            CASE
+                WHEN (smm.is_published IS TRUE OR sas.is_published IS TRUE OR skd.is_published IS TRUE OR sjh.is_published IS TRUE) THEN
+                    RANK() OVER (
+                        ORDER BY (
+                            COALESCE(CASE WHEN smm.is_published IS TRUE THEN COALESCE(mm.score, (
+                                SELECT COALESCE(SUM(mr.round_score), 0)
+                                FROM mindmaze_results mr
+                                JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
+                                WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
+                            ), 0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN sas.is_published IS TRUE THEN COALESCE(as_.score, (
+                                SELECT COALESCE(SUM(asr.round_score), 0)
+                                FROM ace_spade_results asr
+                                JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
+                                WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
+                            ), 0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
+                                SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
+                                FROM king_diamond_submissions kds
+                                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                            ), 0.0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
+                                SELECT COALESCE(SUM(jha.round_score), 0)
+                                FROM jack_heart_answers jha
+                                JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
+                                WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
+                            ), 0) ELSE 0 END, 0)
+                        ) DESC, t.team_code
+                    )::INT
+                ELSE NULL
+            END AS overall_rank,
+                COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
             FROM teams t
             LEFT JOIN round1_selections rs ON rs.team_id = t.team_id
             LEFT JOIN suits st ON st.suit_id = rs.suit_id

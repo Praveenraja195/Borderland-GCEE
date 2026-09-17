@@ -1,10 +1,10 @@
-import { getToken, clearToken, syncServerTime } from '../../shared/js/api.js?v=v33_publish_final_results_btn_text';
-import { renderLogin } from './screens/login.js?v=v33_publish_final_results_btn_text';
-import { renderDashboard } from './screens/dashboard.js?v=v33_publish_final_results_btn_text';
-import { renderRoomsScreen } from './screens/rooms.js?v=v33_publish_final_results_btn_text';
-import { renderRoomControl } from './screens/room-control.js?v=v33_publish_final_results_btn_text';
-import { renderTeamsAdmin } from './screens/teams-admin.js?v=v33_publish_final_results_btn_text';
-import { renderAdminAccounts } from './screens/admin-accounts.js?v=v33_publish_final_results_btn_text';
+import { getToken, clearToken, syncServerTime } from '../../shared/js/api.js?v=v36_publish_btn_fix';
+import { renderLogin } from './screens/login.js?v=v36_publish_btn_fix';
+import { renderDashboard } from './screens/dashboard.js?v=v36_publish_btn_fix';
+import { renderRoomsScreen } from './screens/rooms.js?v=v36_publish_btn_fix';
+import { renderRoomControl } from './screens/room-control.js?v=v36_publish_btn_fix';
+import { renderTeamsAdmin } from './screens/teams-admin.js?v=v36_publish_btn_fix';
+import { renderAdminAccounts } from './screens/admin-accounts.js?v=v36_publish_btn_fix';
 
 const root = document.getElementById('app');
 

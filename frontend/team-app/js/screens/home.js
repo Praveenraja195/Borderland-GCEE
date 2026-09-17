@@ -544,6 +544,9 @@ export async function checkAndTriggerGlobalOutcome(lbData = null) {
     const myEntry = rows.find(r => r.team_code === team.team_code);
     // STRICT RULE: Only process final outcomes when all games are published and round is COMPLETED
     if (myEntry && myEntry.is_published === true && typeof myEntry.is_qualified === 'boolean') {
+      // Acknowledge receipt of final published results to backend so admin panel confirms delivery
+      api.team.ackPublishedResults().catch(() => {});
+
       if (myEntry.is_qualified === true) {
         // Qualified for Round 2: Remove any elimination overlay
         const laserOverlay = document.getElementById('laser-elimination-overlay');

@@ -326,105 +326,329 @@ export function renderRoomControl(root, navigate, roomId, roundId) {
   }
 
   const SUIT_SYMBOLS = { SPADE: '♠', HEART: '♥', DIAMOND: '♦', CLUB: '♣' };
+  const expandedTeams = new Set();
 
   function renderLeaderboard(rows) {
     if (!rows || !rows.length) {
       lbArea.innerHTML = `<div class="empty-state"><div class="empty-icon"><span class="mi">leaderboard</span></div>No results yet. Scores appear after games are played.</div>`;
       return;
     }
+
+    const allExpanded = rows.length > 0 && rows.every(r => expandedTeams.has(r.team_code));
+
     lbArea.innerHTML = `
-      <div class="bl-f1-admin-lb-wrapper">
-        <div class="bl-f1-header-banner">
-          <div class="bl-f1-header-main">
-            <span class="bl-f1-brand-tag">ADMIN</span>
-            <span class="bl-f1-title-text">LIVE <span class="bl-f1-title-accent">SCOREBOARD</span></span>
+      <div class="bl-admin-scoreboard">
+        <div class="bl-sb-header">
+          <div class="bl-sb-header-left">
+            <span class="bl-sb-live-indicator"><span class="pulse-dot"></span>LIVE STANDINGS</span>
+            <div>
+              <div class="bl-sb-title">ROOM SCOREBOARD</div>
+              <div class="bl-sb-subtitle">${rows.length} Teams Competing • Round-by-Round Breakdown Available</div>
+            </div>
           </div>
-          <div class="bl-f1-subtitle-text">ROOM STANDINGS</div>
-        </div>
-
-        <div class="bl-f1-col-headers" style="grid-template-columns: 46px 1fr auto;">
-          <div class="bl-f1-th-pos">POS</div>
-          <div class="bl-f1-th-name">TEAM</div>
-          <div class="bl-f1-th-scores">
-            <span class="bl-f1-th-sc">MM</span>
-            <span class="bl-f1-th-sc">AS</span>
-            <span class="bl-f1-th-sc">KD</span>
-            <span class="bl-f1-th-sc">JH</span>
-            <span class="bl-f1-th-total">TOTAL</span>
-            <span style="min-width:70px; text-align:center; color:#38bdf8;">STATUS</span>
+          <div class="bl-sb-header-actions">
+            <button id="toggle-all-btn" class="bl-sb-btn" type="button">
+              <span class="mi">${allExpanded ? 'unfold_less' : 'unfold_more'}</span>
+              <span>${allExpanded ? 'Collapse All' : 'Expand All Rounds'}</span>
+            </button>
+            <button id="recompute-btn" class="bl-sb-btn primary" type="button">
+              <span class="mi">refresh</span> Recompute
+            </button>
           </div>
         </div>
 
-        <div class="bl-lb-list">
-          ${rows.map((r, idx) => {
-            const rank = r.live_rank ?? r.rank ?? (idx + 1);
-            const rankNum = `${rank}`;
-            const fallbackSuit = ['SPADE', 'HEART', 'DIAMOND', 'CLUB'][idx % 4];
-            const suitCode = (r.team_suit_code || r.suit_code || r.suit || fallbackSuit).toUpperCase();
-            const suitSymbol = SUIT_SYMBOLS[suitCode] || '♠';
-            const mmVal = r.mindmaze_score !== null && r.mindmaze_score !== undefined ? Number(r.mindmaze_score).toFixed(1) : '—';
-            const asVal = r.ace_spade_score !== null && r.ace_spade_score !== undefined ? Number(r.ace_spade_score).toFixed(1) : '—';
-            const kdVal = r.king_diamond_score !== null && r.king_diamond_score !== undefined ? Number(r.king_diamond_score).toFixed(1) : '—';
-            const jhVal = r.jack_heart_score !== null && r.jack_heart_score !== undefined ? Number(r.jack_heart_score).toFixed(1) : '—';
-            const totalVal = r.total_score !== null && r.total_score !== undefined ? Number(r.total_score).toFixed(1) : '—';
-            const displayName = r.team_code + (r.team_name ? ` (${r.team_name})` : '');
-            const statusHtml = r.is_qualified === true 
-              ? '<span class="bl-f1-status-pill qualified">QUALIFIED</span>' 
-              : r.is_qualified === false 
-              ? '<span class="bl-f1-status-pill eliminated">ELIMINATED</span>' 
-              : '<span class="bl-f1-status-pill">—</span>';
+        <div class="bl-sb-table-wrap">
+          <table class="bl-sb-table">
+            <thead>
+              <tr>
+                <th class="bl-sb-th center" style="width: 50px;">POS</th>
+                <th class="bl-sb-th">TEAM & SUIT</th>
+                <th class="bl-sb-th center" title="MindMaze">🧠 MM</th>
+                <th class="bl-sb-th center" title="Ace of Spades">♠ AS</th>
+                <th class="bl-sb-th center" title="King of Diamonds">♦ KD</th>
+                <th class="bl-sb-th center" title="Jack of Hearts">♥ JH</th>
+                <th class="bl-sb-th right" style="min-width: 90px;">TOTAL</th>
+                <th class="bl-sb-th center" style="min-width: 95px;">STATUS</th>
+                <th class="bl-sb-th center" style="width: 100px;">ROUNDS</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((r, idx) => {
+                const rank = r.live_rank ?? r.rank ?? (idx + 1);
+                const fallbackSuit = ['SPADE', 'HEART', 'DIAMOND', 'CLUB'][idx % 4];
+                const suitCode = (r.team_suit_code || r.suit_code || r.suit || fallbackSuit).toUpperCase();
+                const suitSymbol = SUIT_SYMBOLS[suitCode] || '♠';
+                const isExpanded = expandedTeams.has(r.team_code);
 
-            return `
-              <div class="bl-lb-row suit-${suitCode.toLowerCase()} ${rank === 1 ? 'p1' : ''}">
-                <div class="bl-f1-rank-box">
-                  <span class="bl-f1-rank-num">${rankNum}</span>
-                </div>
+                const mmVal = r.mindmaze_score !== null && r.mindmaze_score !== undefined ? Number(r.mindmaze_score).toFixed(1) : null;
+                const asVal = r.ace_spade_score !== null && r.ace_spade_score !== undefined ? Number(r.ace_spade_score).toFixed(1) : null;
+                const kdVal = r.king_diamond_score !== null && r.king_diamond_score !== undefined ? Number(r.king_diamond_score).toFixed(1) : null;
+                const jhVal = r.jack_heart_score !== null && r.jack_heart_score !== undefined ? Number(r.jack_heart_score).toFixed(1) : null;
+                const totalVal = r.total_score !== null && r.total_score !== undefined ? Number(r.total_score).toFixed(1) : '0.0';
 
-                <div class="bl-f1-team-strip suit-bg-${suitCode.toLowerCase()}">
-                  <div class="bl-f1-team-text">
-                    <span class="bl-f1-team-name">${displayName}</span>
-                  </div>
-                </div>
+                const statusHtml = r.is_qualified === true 
+                  ? '<span class="bl-sb-status-pill qualified">QUALIFIED</span>' 
+                  : r.is_qualified === false 
+                  ? '<span class="bl-sb-status-pill eliminated">ELIMINATED</span>' 
+                  : '<span class="bl-sb-status-pill active">ACTIVE</span>';
 
-                <div class="bl-f1-scores-box">
-                  <div class="bl-f1-score-cell" title="MindMaze">${mmVal}</div>
-                  <div class="bl-f1-divider">|</div>
-                  <div class="bl-f1-score-cell" title="Ace of Spades">${asVal}</div>
-                  <div class="bl-f1-divider">|</div>
-                  <div class="bl-f1-score-cell" title="King of Diamonds">${kdVal}</div>
-                  <div class="bl-f1-divider">|</div>
-                  <div class="bl-f1-score-cell" title="Jack of Hearts">${jhVal}</div>
-                  <div class="bl-f1-divider">|</div>
-                  <div class="bl-f1-score-cell total-score" title="Total Score">${totalVal}</div>
-                  <div class="bl-f1-divider">|</div>
-                  <div class="bl-f1-suit-cell suit-color-${suitCode.toLowerCase()}">${suitSymbol}</div>
-                  <div class="bl-f1-divider">|</div>
-                  <div style="min-width: 70px; text-align: center;">${statusHtml}</div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
+                const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : '';
+                const details = r.round_details || {};
+                const mmRounds = details.MINDMAZE || [];
+                const asRounds = details.ACE_SPADE || [];
+                const kdRounds = details.KING_DIAMOND || [];
+                const jhRounds = details.JACK_HEART || [];
 
-        <div class="btn-row" style="margin-top: 14px; padding: 0 8px;">
-          <button id="recompute-btn" class="btn" style="background: #091322; color: #00ff66; border: 1px solid #1e293b;"><span class="mi">refresh</span> Recompute</button>
+                return `
+                  <tr class="bl-sb-row ${isExpanded ? 'expanded' : ''}" data-team-code="${r.team_code}">
+                    <td class="bl-sb-td center">
+                      <span class="bl-sb-rank-badge ${rankClass}">#${rank}</span>
+                    </td>
+                    <td class="bl-sb-td">
+                      <div class="bl-sb-team-cell">
+                        <span class="bl-sb-suit-icon ${suitCode.toLowerCase()}" title="${suitCode}">${suitSymbol}</span>
+                        <div>
+                          <div class="bl-sb-team-code">${r.team_code}</div>
+                          ${r.team_name ? `<div class="bl-sb-team-sub">${r.team_name}</div>` : ''}
+                        </div>
+                      </div>
+                    </td>
+                    <td class="bl-sb-td center">
+                      <span class="bl-sb-score-pill ${mmVal !== null ? 'active-score' : 'empty'}">${mmVal ?? '—'}</span>
+                    </td>
+                    <td class="bl-sb-td center">
+                      <span class="bl-sb-score-pill ${asVal !== null ? 'active-score' : 'empty'}">${asVal ?? '—'}</span>
+                    </td>
+                    <td class="bl-sb-td center">
+                      <span class="bl-sb-score-pill ${kdVal !== null ? 'active-score' : 'empty'}">${kdVal ?? '—'}</span>
+                    </td>
+                    <td class="bl-sb-td center">
+                      <span class="bl-sb-score-pill ${jhVal !== null ? 'active-score' : 'empty'}">${jhVal ?? '—'}</span>
+                    </td>
+                    <td class="bl-sb-td right">
+                      <div class="bl-sb-total-box">${totalVal}<span class="bl-sb-total-pts">PTS</span></div>
+                    </td>
+                    <td class="bl-sb-td center">
+                      ${statusHtml}
+                    </td>
+                    <td class="bl-sb-td center">
+                      <button class="bl-sb-toggle-btn ${isExpanded ? 'expanded' : ''}" type="button" data-team-toggle="${r.team_code}">
+                        <span>${isExpanded ? 'Hide' : 'Details'}</span>
+                        <span class="mi">expand_more</span>
+                      </button>
+                    </td>
+                  </tr>
+
+                  <tr class="bl-sb-drawer-row ${isExpanded ? '' : 'hidden'}" id="drawer-${r.team_code}">
+                    <td colspan="9" class="bl-sb-drawer-td">
+                      <div class="bl-sb-drawer-content">
+                        <div class="bl-sb-drawer-title">
+                          <span>ROUND-BY-ROUND METRICS FOR <strong>${r.team_code}</strong></span>
+                          <span>TOTAL ACCUMULATED: <strong>${totalVal} PTS</strong></span>
+                        </div>
+                        <div class="bl-sb-games-grid">
+
+                          <!-- King of Diamonds Card -->
+                          <div class="bl-sb-game-card">
+                            <div class="bl-sb-game-card-header">
+                              <span class="bl-sb-game-card-title">♦ King of Diamonds</span>
+                              <span class="bl-sb-game-card-score">${kdVal ? `${kdVal} PTS` : '—'}</span>
+                            </div>
+                            ${kdRounds.length ? `
+                              <table class="bl-sb-round-table">
+                                <thead>
+                                  <tr>
+                                    <th>Round</th>
+                                    <th class="right">Target</th>
+                                    <th class="right">Pick</th>
+                                    <th class="right">Diff</th>
+                                    <th class="center">Rank</th>
+                                    <th class="center">Penalty</th>
+                                    <th class="right">Score</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${kdRounds.map(kd => `
+                                    <tr>
+                                      <td><span class="bl-sb-round-badge">R${kd.round_number}</span></td>
+                                      <td class="right">${kd.target_value !== null ? Number(kd.target_value).toFixed(2) : '—'}</td>
+                                      <td class="right" style="font-weight:700;">${kd.submitted_number !== null ? Number(kd.submitted_number).toFixed(2) : '—'}</td>
+                                      <td class="right">${kd.difference !== null ? Number(kd.difference).toFixed(2) : '—'}</td>
+                                      <td class="center">
+                                        ${kd.rank !== null ? `#${kd.rank}` : '—'}
+                                        ${kd.is_winner ? ' <span class="bl-sb-winner-tag">👑 WINNER</span>' : ''}
+                                      </td>
+                                      <td class="center">
+                                        ${kd.penalty > 0 ? `<span class="bl-sb-penalty-tag">-${Number(kd.penalty).toFixed(1)}</span>` : '<span style="color:#16a34a; font-weight:700;">0</span>'}
+                                      </td>
+                                      <td class="right bl-sb-score-cell">${Number(kd.score).toFixed(1)}</td>
+                                    </tr>
+                                  `).join('')}
+                                </tbody>
+                              </table>
+                            ` : `<div class="bl-sb-no-rounds">No King of Diamonds rounds played yet.</div>`}
+                          </div>
+
+                          <!-- MindMaze Card -->
+                          <div class="bl-sb-game-card">
+                            <div class="bl-sb-game-card-header">
+                              <span class="bl-sb-game-card-title">🧠 MindMaze</span>
+                              <span class="bl-sb-game-card-score">${mmVal ? `${mmVal} PTS` : '—'}</span>
+                            </div>
+                            ${mmRounds.length ? `
+                              <table class="bl-sb-round-table">
+                                <thead>
+                                  <tr>
+                                    <th>Round</th>
+                                    <th class="center">Moves</th>
+                                    <th class="center">Mistakes</th>
+                                    <th class="center">Correct</th>
+                                    <th class="center">Time</th>
+                                    <th class="right">Score</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${mmRounds.map(mm => `
+                                    <tr>
+                                      <td><span class="bl-sb-round-badge">R${mm.round_number}</span></td>
+                                      <td class="center">${mm.moves}</td>
+                                      <td class="center">${mm.mistakes > 0 ? `<span class="bl-sb-penalty-tag">${mm.mistakes}</span>` : '0'}</td>
+                                      <td class="center"><span class="bl-sb-correct-tag">${mm.correct_tiles}</span></td>
+                                      <td class="center" style="font-family:monospace;">${mm.completion_time || '—'}</td>
+                                      <td class="right bl-sb-score-cell">${Number(mm.score).toFixed(1)}</td>
+                                    </tr>
+                                  `).join('')}
+                                </tbody>
+                              </table>
+                            ` : `<div class="bl-sb-no-rounds">No MindMaze rounds played yet.</div>`}
+                          </div>
+
+                          <!-- Ace of Spades Card -->
+                          <div class="bl-sb-game-card">
+                            <div class="bl-sb-game-card-header">
+                              <span class="bl-sb-game-card-title">♠ Ace of Spades</span>
+                              <span class="bl-sb-game-card-score">${asVal ? `${asVal} PTS` : '—'}</span>
+                            </div>
+                            ${asRounds.length ? `
+                              <table class="bl-sb-round-table">
+                                <thead>
+                                  <tr>
+                                    <th>Round</th>
+                                    <th class="center">Moves</th>
+                                    <th class="center">Correct</th>
+                                    <th class="center">Wrong</th>
+                                    <th class="center">Time</th>
+                                    <th class="right">Score</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${asRounds.map(as_item => `
+                                    <tr>
+                                      <td><span class="bl-sb-round-badge">R${as_item.round_number}</span></td>
+                                      <td class="center">${as_item.moves}</td>
+                                      <td class="center"><span class="bl-sb-correct-tag">${as_item.correct_picks}</span></td>
+                                      <td class="center">${as_item.wrong_picks > 0 ? `<span class="bl-sb-penalty-tag">${as_item.wrong_picks}</span>` : '0'}</td>
+                                      <td class="center" style="font-family:monospace;">${as_item.completion_time || '—'}</td>
+                                      <td class="right bl-sb-score-cell">${Number(as_item.score).toFixed(1)}</td>
+                                    </tr>
+                                  `).join('')}
+                                </tbody>
+                              </table>
+                            ` : `<div class="bl-sb-no-rounds">No Ace of Spades rounds played yet.</div>`}
+                          </div>
+
+                          <!-- Jack of Hearts Card -->
+                          <div class="bl-sb-game-card">
+                            <div class="bl-sb-game-card-header">
+                              <span class="bl-sb-game-card-title">♥ Jack of Hearts</span>
+                              <span class="bl-sb-game-card-score">${jhVal ? `${jhVal} PTS` : '—'}</span>
+                            </div>
+                            ${jhRounds.length ? `
+                              <table class="bl-sb-round-table">
+                                <thead>
+                                  <tr>
+                                    <th>Round</th>
+                                    <th>Guessed</th>
+                                    <th>Actual</th>
+                                    <th class="center">Result</th>
+                                    <th class="right">Score</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${jhRounds.map(jh => `
+                                    <tr>
+                                      <td><span class="bl-sb-round-badge">R${jh.round_number}</span></td>
+                                      <td style="font-weight:700;">${jh.submitted_symbol || '—'}</td>
+                                      <td style="color:#64748b;">${jh.actual_symbol || '—'}</td>
+                                      <td class="center">
+                                        ${jh.is_correct ? '<span class="bl-sb-correct-tag">✓ CORRECT</span>' : '<span class="bl-sb-wrong-tag">✕ WRONG</span>'}
+                                      </td>
+                                      <td class="right bl-sb-score-cell">${Number(jh.score).toFixed(1)}</td>
+                                    </tr>
+                                  `).join('')}
+                                </tbody>
+                              </table>
+                            ` : `<div class="bl-sb-no-rounds">No Jack of Hearts rounds played yet.</div>`}
+                          </div>
+
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
         </div>
       </div>
     `;
-    lbArea.querySelector('#recompute-btn').addEventListener('click', () => {
-      const reBtn = lbArea.querySelector('#recompute-btn');
-      if (reBtn) reBtn.disabled = true;
-      api.admin.recomputeResults(roomId)
-        .then(() => {
-          toast('Scores and leaderboard recomputed successfully');
-          loadLeaderboard();
-          loadSessions();
-        })
-        .catch(err => toast(err.message, { error: true }))
-        .finally(() => {
-          if (reBtn) reBtn.disabled = false;
-        });
+
+    // Row expansion click handlers
+    lbArea.querySelectorAll('.bl-sb-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        // Prevent toggle if clicking a link or button directly
+        if (e.target.closest('button') && !e.target.closest('.bl-sb-toggle-btn')) return;
+        const code = row.getAttribute('data-team-code');
+        if (!code) return;
+        if (expandedTeams.has(code)) {
+          expandedTeams.delete(code);
+        } else {
+          expandedTeams.add(code);
+        }
+        renderLeaderboard(rows);
+      });
     });
+
+    // Toggle all button
+    const toggleAllBtn = lbArea.querySelector('#toggle-all-btn');
+    if (toggleAllBtn) {
+      toggleAllBtn.addEventListener('click', () => {
+        if (allExpanded) {
+          expandedTeams.clear();
+        } else {
+          rows.forEach(r => expandedTeams.add(r.team_code));
+        }
+        renderLeaderboard(rows);
+      });
+    }
+
+    // Recompute button
+    const recomputeBtn = lbArea.querySelector('#recompute-btn');
+    if (recomputeBtn) {
+      recomputeBtn.addEventListener('click', () => {
+        recomputeBtn.disabled = true;
+        api.admin.recomputeResults(roomId)
+          .then(() => {
+            toast('Scores and leaderboard recomputed successfully');
+            loadLeaderboard();
+            loadSessions();
+          })
+          .catch(err => toast(err.message, { error: true }))
+          .finally(() => {
+            recomputeBtn.disabled = false;
+          });
+      });
+    }
   }
 
   async function loadLeaderboard() {
@@ -435,7 +659,12 @@ export function renderRoomControl(root, navigate, roomId, roundId) {
       lbArea.innerHTML = `<p class="status-note error">${err.message}</p>`;
     }
     if (!channel) {
-      channel = new LiveChannel(`/rooms/${roomId}/leaderboard`, (data) => renderLeaderboard(data), 'admin');
+      channel = new LiveChannel(`/rooms/${roomId}/leaderboard`, async () => {
+        try {
+          const fresh = await api.admin.roomLeaderboard(roomId);
+          if (fresh) renderLeaderboard(fresh);
+        } catch (_) {}
+      }, 'admin');
     }
   }
 
