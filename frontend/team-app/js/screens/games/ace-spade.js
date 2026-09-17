@@ -890,6 +890,45 @@ export function mountRound(container, ctx, reload) {
     }
   }
 
+  // Anti-cheat tab switch detection
+  let tabSwitchHandled = false;
+
+  function handleTabSwitch() {
+    if (tabSwitchHandled || state.submitting || state.phase === 'submitted') return;
+    if (!document.hidden && document.hasFocus && document.hasFocus()) return;
+
+    tabSwitchHandled = true;
+    cleanupTabSwitchListeners();
+
+    if (state.phase === 'deal1' || state.phase === 'display' || state.phase === 'deal2') {
+      state.path = [];
+      state.moves = 0;
+      toast('Tab switch detected during memorization phase! Sub-round terminated with 0 points.', { error: true });
+      submitResult(true);
+    } else if (state.phase === 'selection') {
+      toast('Tab switch detected! Sub-round auto-submitted with current selections.', { error: true });
+      submitResult(true);
+    }
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      handleTabSwitch();
+    }
+  }
+
+  function onBlur() {
+    handleTabSwitch();
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('blur', onBlur);
+
+  function cleanupTabSwitchListeners() {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('blur', onBlur);
+  }
+
   function updateTimerDisplay() {
     const secsStr = String(Math.max(Math.ceil(state.timeLeft), 0)).padStart(2, '0');
     timerFace.textContent = `00:${secsStr}`;
@@ -900,6 +939,7 @@ export function mountRound(container, ctx, reload) {
 
   const timerInterval = setInterval(() => {
     if (!container.isConnected || state.phase === 'submitted') {
+      cleanupTabSwitchListeners();
       clearInterval(timerInterval);
       return;
     }
@@ -918,6 +958,7 @@ export function mountRound(container, ctx, reload) {
   async function submitResult(isAuto = false) {
     if (state.submitting || state.phase === 'submitted') return;
     state.submitting = true;
+    cleanupTabSwitchListeners();
 
     let correctPicks = 0;
     let wrongPicks = 0;

@@ -412,15 +412,57 @@ function mountRound(container, ctx, reload) {
     startSelectionPhase(true);
   }
 
+  // Anti-cheat tab switch detection
+  let tabSwitchHandled = false;
+
+  function handleTabSwitch() {
+    if (tabSwitchHandled || state.submitting || state.phase === 'submitted') return;
+    if (!document.hidden && document.hasFocus && document.hasFocus()) return;
+
+    tabSwitchHandled = true;
+    cleanupTabSwitchListeners();
+
+    if (state.phase === 'display') {
+      state.picked = new Set();
+      state.moves = 0;
+      state.mistakes = 0;
+      toast('Tab switch detected during memorization phase! Sub-round terminated with 0 points.', { error: true });
+      submitResult(true);
+    } else if (state.phase === 'selection') {
+      toast('Tab switch detected! Sub-round auto-submitted with current selections.', { error: true });
+      submitResult(true);
+    }
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      handleTabSwitch();
+    }
+  }
+
+  function onBlur() {
+    handleTabSwitch();
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('blur', onBlur);
+
+  function cleanupTabSwitchListeners() {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('blur', onBlur);
+  }
+
   // Timer interval
   updateTimerDisplay();
   const timerInterval = setInterval(() => {
     if (!container.isConnected) {
+      cleanupTabSwitchListeners();
       clearInterval(timerInterval);
       return;
     }
 
     if (state.phase === 'submitted') {
+      cleanupTabSwitchListeners();
       clearInterval(timerInterval);
       return;
     }
@@ -495,6 +537,7 @@ function mountRound(container, ctx, reload) {
   async function submitResult(isAuto = false) {
     if (state.submitting || state.phase === 'submitted') return;
     state.submitting = true;
+    cleanupTabSwitchListeners();
 
     const correctTiles = [...state.picked].filter((i) => lit.has(Number(i))).length;
     const mistakes = [...state.picked].filter((i) => !lit.has(Number(i))).length;

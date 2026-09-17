@@ -448,11 +448,17 @@ def _close_king_diamond(blob: dict, sub: dict, submissions: dict[str, dict]) -> 
                 (team_id, abs(float(entry["submitted_number"]) - target))
                 for team_id, entry in valid.items()
             ),
-            key=lambda pair: (pair[1], pair[0]),
+            key=lambda pair: pair[1],
         )
 
-    rank_by_team = {team_id: idx + 1 for idx, (team_id, _diff) in enumerate(ranked)}
-    diff_by_team = {team_id: diff for team_id, diff in ranked}
+    rank_by_team = {}
+    diff_by_team = {}
+    current_rank = 1
+    for idx, (team_id, diff) in enumerate(ranked):
+        diff_by_team[team_id] = diff
+        if idx > 0 and diff > ranked[idx - 1][1]:
+            current_rank += 1
+        rank_by_team[team_id] = current_rank
 
     for team in blob["roster"]:
         team_id = team["team_id"]

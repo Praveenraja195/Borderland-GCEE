@@ -58,12 +58,13 @@ async def submit_result(
     # Fix §1.1: server-side bounds on client-supplied gameplay metrics.
     # The DB schema only has CHECK (... >= 0) which allows arbitrarily large
     max_tiles = settings.mindmaze_max_tiles
-    if correct_tiles > max_tiles:
+    if correct_tiles < 0 or correct_tiles > max_tiles:
         raise ConflictError(
-            f"correct_tiles cannot exceed the board size ({max_tiles}). "
+            f"correct_tiles must be between 0 and the board size ({max_tiles}). "
             f"Received: {correct_tiles}"
         )
-    moves = max(moves, correct_tiles + mistakes, correct_tiles)
+    mistakes = max(0, int(mistakes))
+    moves = max(int(moves), correct_tiles + mistakes, correct_tiles)
     if completion_time_seconds is not None:
         valid_time = max(0.0, float(completion_time_seconds))
     else:

@@ -62,12 +62,15 @@ async def _fetch_room_leaderboard(room_id: uuid.UUID) -> list[dict]:
             END AS ace_spade_score,
             CASE
                 WHEN skd.is_published IS TRUE THEN
-                    COALESCE(kd.score, (
-                        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                        FROM king_diamond_submissions kds
-                        JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                        WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                    ), 0.0)::FLOAT
+                    COALESCE(kd.score, GREATEST(0.0,
+                        COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+                        - COALESCE((
+                            SELECT SUM(kds.round_score)
+                            FROM king_diamond_submissions kds
+                            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                        ), 0.0)
+                    ))::FLOAT
                 ELSE NULL
             END AS king_diamond_score,
             CASE
@@ -95,12 +98,15 @@ async def _fetch_room_leaderboard(room_id: uuid.UUID) -> list[dict]:
                             JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                         ), 0) ELSE 0 END, 0) +
-                        COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
-                            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                            FROM king_diamond_submissions kds
-                            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                        ), 0.0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, GREATEST(0.0,
+                            COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+                            - COALESCE((
+                                SELECT SUM(kds.round_score)
+                                FROM king_diamond_submissions kds
+                                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                            ), 0.0)
+                        )) ELSE 0 END, 0) +
                         COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
                             SELECT COALESCE(SUM(jha.round_score), 0)
                             FROM jack_heart_answers jha
@@ -132,12 +138,15 @@ async def _fetch_room_leaderboard(room_id: uuid.UUID) -> list[dict]:
                                 JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                                 WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                             ), 0) ELSE 0 END, 0) +
-                            COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
-                                SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                                FROM king_diamond_submissions kds
-                                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                            ), 0.0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, GREATEST(0.0,
+                                COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+                                - COALESCE((
+                                    SELECT SUM(kds.round_score)
+                                    FROM king_diamond_submissions kds
+                                    JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                                    WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                                ), 0.0)
+                            )) ELSE 0 END, 0) +
                             COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
                                 SELECT COALESCE(SUM(jha.round_score), 0)
                                 FROM jack_heart_answers jha
@@ -209,12 +218,15 @@ async def _fetch_overall_leaderboard() -> list[dict]:
             END AS ace_spade_score,
             CASE
                 WHEN skd.is_published IS TRUE THEN
-                    COALESCE(kd.score, (
-                        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                        FROM king_diamond_submissions kds
-                        JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                        WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                    ), 0.0)::FLOAT
+                    COALESCE(kd.score, GREATEST(0.0,
+                        COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+                        - COALESCE((
+                            SELECT SUM(kds.round_score)
+                            FROM king_diamond_submissions kds
+                            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                        ), 0.0)
+                    ))::FLOAT
                 ELSE NULL
             END AS king_diamond_score,
             CASE
@@ -242,12 +254,15 @@ async def _fetch_overall_leaderboard() -> list[dict]:
                             JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                         ), 0) ELSE 0 END, 0) +
-                        COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
-                            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                            FROM king_diamond_submissions kds
-                            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                        ), 0.0) ELSE 0 END, 0) +
+                        COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, GREATEST(0.0,
+                            COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+                            - COALESCE((
+                                SELECT SUM(kds.round_score)
+                                FROM king_diamond_submissions kds
+                                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                            ), 0.0)
+                        )) ELSE 0 END, 0) +
                         COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
                             SELECT COALESCE(SUM(jha.round_score), 0)
                             FROM jack_heart_answers jha
@@ -278,12 +293,15 @@ async def _fetch_overall_leaderboard() -> list[dict]:
                                 JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                                 WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
                             ), 0) ELSE 0 END, 0) +
-                            COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, (
-                                SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-                                FROM king_diamond_submissions kds
-                                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-                                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-                            ), 0.0) ELSE 0 END, 0) +
+                            COALESCE(CASE WHEN skd.is_published IS TRUE THEN COALESCE(kd.score, GREATEST(0.0,
+                                COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+                                - COALESCE((
+                                    SELECT SUM(kds.round_score)
+                                    FROM king_diamond_submissions kds
+                                    JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                                    WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                                ), 0.0)
+                            )) ELSE 0 END, 0) +
                             COALESCE(CASE WHEN sjh.is_published IS TRUE THEN COALESCE(jh.score, (
                                 SELECT COALESCE(SUM(jha.round_score), 0)
                                 FROM jack_heart_answers jha

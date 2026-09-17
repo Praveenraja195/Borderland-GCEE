@@ -54,7 +54,10 @@ async def submit_answer(
         )
     ).scalar_one_or_none()
 
-    actual_id = assignment.symbol_id if assignment else submitted_symbol_id
+    if assignment is None:
+        raise NotFoundError("No symbol assignment found for your team in this round")
+
+    actual_id = assignment.symbol_id
     score = compute_round_score(submitted_symbol_id, actual_id)
 
     if existing_answer is not None:

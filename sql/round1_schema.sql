@@ -659,12 +659,15 @@ BEGIN
                JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
                WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
            ), 0),
-           COALESCE(kd.score, (
-               SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-               FROM king_diamond_submissions kds
-               JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-               WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-           ), 0.0),
+           COALESCE(kd.score, GREATEST(0.0,
+               COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+               - COALESCE((
+                   SELECT SUM(kds.round_score)
+                   FROM king_diamond_submissions kds
+                   JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                   WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+               ), 0.0)
+           )),
            COALESCE(jh.score, (
                SELECT COALESCE(SUM(jha.round_score), 0)
                FROM jack_heart_answers jha
@@ -773,12 +776,15 @@ SELECT
         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
     ), 0)::FLOAT AS ace_spade_score,
-    COALESCE(kd.score, (
-        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-        FROM king_diamond_submissions kds
-        JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-        WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-    ), 0.0)::FLOAT AS king_diamond_score,
+    COALESCE(kd.score, GREATEST(0.0,
+        COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+        - COALESCE((
+            SELECT SUM(kds.round_score)
+            FROM king_diamond_submissions kds
+            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+        ), 0.0)
+    ))::FLOAT AS king_diamond_score,
     COALESCE(jh.score, (
         SELECT COALESCE(SUM(jha.round_score), 0)
         FROM jack_heart_answers jha
@@ -795,12 +801,15 @@ SELECT
         FROM ace_spade_results asr
         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-    ), 0) + COALESCE(kd.score, (
-        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-        FROM king_diamond_submissions kds
-        JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-        WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-    ), 0.0) + COALESCE(jh.score, (
+    ) + COALESCE(kd.score, GREATEST(0.0,
+        COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+        - COALESCE((
+            SELECT SUM(kds.round_score)
+            FROM king_diamond_submissions kds
+            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+        ), 0.0)
+    )) + COALESCE(jh.score, (
         SELECT COALESCE(SUM(jha.round_score), 0)
         FROM jack_heart_answers jha
         JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
@@ -818,12 +827,15 @@ SELECT
             FROM ace_spade_results asr
             JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-        ), 0) + COALESCE(kd.score, (
-            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-            FROM king_diamond_submissions kds
-            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-        ), 0.0) + COALESCE(jh.score, (
+        ) + COALESCE(kd.score, GREATEST(0.0,
+            COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+            - COALESCE((
+                SELECT SUM(kds.round_score)
+                FROM king_diamond_submissions kds
+                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+            ), 0.0)
+        )) + COALESCE(jh.score, (
             SELECT COALESCE(SUM(jha.round_score), 0)
             FROM jack_heart_answers jha
             JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
@@ -873,12 +885,15 @@ SELECT
         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
     ), 0)::FLOAT AS ace_spade_score,
-    COALESCE(kd.score, (
-        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-        FROM king_diamond_submissions kds
-        JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-        WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-    ), 0.0)::FLOAT AS king_diamond_score,
+    COALESCE(kd.score, GREATEST(0.0,
+        COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+        - COALESCE((
+            SELECT SUM(kds.round_score)
+            FROM king_diamond_submissions kds
+            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+        ), 0.0)
+    ))::FLOAT AS king_diamond_score,
     COALESCE(jh.score, (
         SELECT COALESCE(SUM(jha.round_score), 0)
         FROM jack_heart_answers jha
@@ -895,12 +910,15 @@ SELECT
         FROM ace_spade_results asr
         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-    ), 0) + COALESCE(kd.score, (
-        SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-        FROM king_diamond_submissions kds
-        JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-        WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-    ), 0.0) + COALESCE(jh.score, (
+    ) + COALESCE(kd.score, GREATEST(0.0,
+        COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+        - COALESCE((
+            SELECT SUM(kds.round_score)
+            FROM king_diamond_submissions kds
+            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+        ), 0.0)
+    )) + COALESCE(jh.score, (
         SELECT COALESCE(SUM(jha.round_score), 0)
         FROM jack_heart_answers jha
         JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
@@ -921,12 +939,15 @@ SELECT
             FROM ace_spade_results asr
             JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-        ), 0) + COALESCE(kd.score, (
-            SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
-            FROM king_diamond_submissions kds
-            JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
-            WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
-        ), 0.0) + COALESCE(jh.score, (
+        ) + COALESCE(kd.score, GREATEST(0.0,
+            COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
+            - COALESCE((
+                SELECT SUM(kds.round_score)
+                FROM king_diamond_submissions kds
+                JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+            ), 0.0)
+        )) + COALESCE(jh.score, (
             SELECT COALESCE(SUM(jha.round_score), 0)
             FROM jack_heart_answers jha
             JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
