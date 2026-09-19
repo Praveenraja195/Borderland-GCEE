@@ -112,8 +112,13 @@
 /* ── Main Content Area ───────────────────────────────────────────────── */
 
 .admin-main {
+  /* Fill the whole column on laptop screens. Past 1760px of content the side
+     padding grows instead, so ultra-wide monitors stay centred while the
+     scrollbar stays at the viewport edge. */
   padding: 24px 28px 40px;
-  max-width: 1200px;
+  padding-inline: max(28px, calc((100% - 1760px) / 2));
+  width: 100%;
+  min-width: 0;
   height: 100vh;
   overflow-y: auto;
 }
@@ -834,10 +839,15 @@
 /* ── Game Control Cards (legacy) ─────────────────────────────────────── */
 
 .game-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
   margin-bottom: 24px;
+}
+.game-controls > .svc-card { margin-bottom: 0; }
+/* Two service cards per row once the main column is wide enough (~1135px+). */
+@media (min-width: 1440px) {
+  .game-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .game-card {
   background: #fff;
@@ -1883,7 +1893,7 @@
 
 /* ── Live Final Results Broadcast Modal ── */
 .modal.broadcast-modal {
-  max-width: 820px;
+  max-width: min(1100px, 95vw);
   width: 95%;
   max-height: 90vh;
   display: flex;
@@ -1901,6 +1911,8 @@
   padding: 20px 24px;
   color: #ffffff;
   position: relative;
+  z-index: 10;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   overflow: hidden;
 }
 
@@ -1979,205 +1991,6 @@
   background: #f8fafc;
 }
 
-.bl-bm-progress-card {
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 16px 18px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
-  margin-bottom: 18px;
-}
-
-.bl-bm-progress-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-size: 0.84rem;
-  font-weight: 800;
-  color: #1e293b;
-}
-
-.bl-bm-progress-bar-bg {
-  height: 10px;
-  background: #e2e8f0;
-  border-radius: 9999px;
-  overflow: hidden;
-  margin-bottom: 12px;
-  position: relative;
-}
-
-.bl-bm-progress-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #2563eb, #10b981, #059669);
-  background-size: 200% 100%;
-  border-radius: 9999px;
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.bl-bm-progress-bar-fill.broadcasting {
-  animation: bl-shimmer-progress 1.5s linear infinite;
-}
-
-@keyframes bl-shimmer-progress {
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
-}
-
-.bl-bm-stat-pills {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.bl-bm-stat-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 6px;
-  font-size: 0.76rem;
-  font-weight: 800;
-}
-.bl-bm-stat-pill.qualified {
-  background: #dcfce7;
-  color: #15803d;
-  border: 1px solid #86efac;
-}
-.bl-bm-stat-pill.eliminated {
-  background: #fee2e2;
-  color: #b91c1c;
-  border: 1px solid #fca5a5;
-}
-.bl-bm-stat-pill.total {
-  background: #e0f2fe;
-  color: #0369a1;
-  border: 1px solid #7dd3fc;
-}
-
-.bl-bm-teams-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.bl-bm-team-row {
-  background: #ffffff;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  transition: all 0.2s ease;
-}
-.bl-bm-team-row:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
-}
-
-.bl-bm-team-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.bl-bm-team-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.bl-bm-team-code {
-  font-weight: 900;
-  font-size: 0.95rem;
-  color: #0f172a;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bl-bm-team-name {
-  font-size: 0.74rem;
-  color: #64748b;
-}
-
-.bl-bm-team-scores {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.bl-bm-pts {
-  font-family: var(--font-mono, monospace);
-  font-weight: 900;
-  font-size: 1rem;
-  color: #0f172a;
-}
-
-.bl-bm-outcome-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.74rem;
-  font-weight: 800;
-  padding: 5px 11px;
-  border-radius: 7px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-.bl-bm-outcome-tag.qualified {
-  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
-  color: #065f46;
-  border: 1.5px solid #6ee7b7;
-  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.15);
-}
-.bl-bm-outcome-tag.eliminated {
-  background: linear-gradient(135deg, #fff1f2, #ffe4e6);
-  color: #9f1239;
-  border: 1.5px solid #fda4af;
-  box-shadow: 0 1px 3px rgba(244, 63, 94, 0.15);
-}
-
-.bl-bm-delivery-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 9999px;
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  transition: all 0.3s ease;
-}
-.bl-bm-delivery-badge.confirmed {
-  background: #dcfce7;
-  color: #15803d;
-  border: 1.5px solid #86efac;
-  box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
-}
-.bl-bm-delivery-badge.delivered {
-  background: #e0f2fe;
-  color: #0284c7;
-  border: 1.5px solid #7dd3fc;
-  box-shadow: 0 0 8px rgba(2, 132, 199, 0.15);
-}
-.bl-bm-delivery-badge.transmitting {
-  background: #fef3c7;
-  color: #b45309;
-  border: 1.5px solid #fde68a;
-  animation: pulse 1.5s infinite;
-}
-.bl-bm-delivery-badge.standby {
-  background: #f1f5f9;
-  color: #64748b;
-  border: 1px solid #cbd5e1;
-}
-
-/* Pulse dots */
 .pulse-dot {
   width: 8px;
   height: 8px;
@@ -2229,3 +2042,304 @@
   flex-wrap: wrap;
   gap: 12px;
 }
+
+/* ── Publish Final Results: delivery board ─────────────────────────────
+   Room cards → team chips. Before publishing a chip shows presence (blue
+   dot = device connected and ready). After publishing it shows delivery as
+   a ring: sending → received (device acknowledged this broadcast). */
+.bm-rooms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.bm-room {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.bm-room-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bm-room-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body-en);
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+.bm-room-code .mi { font-size: 18px; color: #2563eb; }
+.bm-room-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.bm-team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px 6px;
+}
+.bm-room-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  padding: 10px 0;
+}
+.bm-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  background: #fff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.bm-team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  min-width: 0;
+}
+.bm-team-code {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #0f172a;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-team-status {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-team.offline .bm-team-code,
+.bm-team.pending .bm-team-code { color: #94a3b8; }
+.bm-team.confirmed .bm-team-status { color: #15803d; }
+.bm-team.sending .bm-team-status { color: #b45309; }
+.bm-team.mismatch .bm-team-status { color: #b91c1c; white-space: normal; }
+
+/* Delivery ring: an SVG circle whose stroke fills as the send progresses. */
+.bm-ring {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.bm-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.bm-ring-bg { fill: none; stroke: #e2e8f0; stroke-width: 3; }
+.bm-ring-fg {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease;
+}
+.bm-ring.ready .bm-ring-bg { stroke: #bfdbfe; }
+.bm-ring.sending .bm-ring-fg { stroke: #f59e0b; }
+.bm-ring.sending svg { animation: bm-ring-spin 1.4s linear infinite; }
+.bm-ring.confirmed .bm-ring-bg { stroke: #d1fae5; }
+.bm-ring.confirmed .bm-ring-fg { stroke: #10b981; }
+.bm-ring.mismatch .bm-ring-fg { stroke: #ef4444; }
+.bm-ring.pending .bm-ring-fg { stroke: #cbd5e1; stroke-dasharray: 3 5; stroke-dashoffset: 0; }
+.bm-ring-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.bm-ring-icon .mi { font-size: 18px; }
+.bm-ring-icon .mi.spin { animation: spin 0.9s linear infinite; display: inline-block; }
+.bm-ring.confirmed .bm-ring-icon .mi { color: #10b981; font-weight: 700; }
+.bm-ring.sending .bm-ring-icon .mi { color: #d97706; }
+.bm-ring.mismatch .bm-ring-icon .mi { color: #ef4444; font-weight: 700; }
+@keyframes bm-ring-spin { to { transform: rotate(270deg); } }
+
+/* Presence dots (also used by the footer legend). */
+.bm-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #94a3b8;
+  vertical-align: middle;
+}
+.bm-dot.blue { background: #2563eb; animation: bm-dot-pulse 1.8s ease-out infinite; }
+.bm-dot.green { background: #10b981; }
+.bm-dot.amber { background: #f59e0b; }
+.bm-dot.gray { background: #cbd5e1; }
+.bm-dot.purple { background: #7c3aed; }
+.bm-ring .bm-dot { width: 14px; height: 14px; }
+@keyframes bm-dot-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+}
+
+.bm-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+}
+.bm-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.bm-legend .bm-dot.blue { animation: none; }
+.bm-footer-actions { display: flex; gap: 8px; margin-left: auto; }
+.bm-unassigned {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.bm-unassigned .mi { font-size: 16px; }
+
+/* ── Live Leaderboard screen ───────────────────────────────────────────
+   Reuses the room-control scoreboard table (.bl-sb-*); this only adds the
+   view toggle, the stacked room cards and the "score changed" flash. */
+.lb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.lb-view-toggle {
+  display: inline-flex;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+.lb-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-family: var(--font-body-en);
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: #495057;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.lb-view-btn .mi { font-size: 17px; }
+.lb-view-btn:hover { background: #f1f3f5; color: var(--bl-ink); }
+.lb-view-btn.active { background: var(--bl-ink); color: #fff; }
+
+.lb-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.lb-room-card { margin-top: 0; }
+.lb-room-empty {
+  padding: 22px;
+  text-align: center;
+  font-size: 0.82rem;
+  color: #868e96;
+}
+.lb-room-link {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: #2563eb;
+  text-decoration: none;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.lb-room-link:hover { background: #dbeafe; }
+a.bl-sb-btn { text-decoration: none; }
+
+@keyframes lb-row-flash {
+  0%   { background: #fef3c7; }
+  100% { background: transparent; }
+}
+.bl-sb-row.lb-row-flash > td { animation: lb-row-flash 1.5s ease-out; }
+
+/* ── Death Card tiebreaker cards (dashboard) ─────────────────────────── */
+.tb-a-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; margin-bottom: 8px; }
+.tb-a-card-wrap { margin-bottom: 0; }
+.tb-a-meta { font-size: 0.8rem; color: #495057; margin-bottom: 10px; }
+.tb-a-meta strong { color: #0f172a; }
+.tb-a-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tb-a-chip {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+}
+.tb-a-chip.eliminated { background: #f1f5f9; border-color: #e2e8f0; color: #94a3b8; text-decoration: line-through; }
+.tb-a-chip.winner { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.tb-a-cards { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.tb-a-card {
+  width: 64px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  padding: 6px 4px;
+}
+.tb-a-card.taken { border-color: #2563eb; background: #eff6ff; }
+.tb-a-card.joker { border-color: #dc2626; background: #fef2f2; }
+.tb-a-card.safe { opacity: 0.55; }
+.tb-a-card-face { font-size: 1.15rem; line-height: 1.3; }
+.tb-a-card-who { font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-a-history { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.72rem; color: #64748b; }
+.tb-a-history strong { color: #b91c1c; }
+
+.bm-ring.tiebreak .bm-ring-fg { stroke: #7c3aed; }
+.bm-ring.tiebreak .bm-ring-bg { stroke: #ede9fe; }
+.bm-ring.tiebreak .bm-ring-icon .mi { color: #7c3aed; }
+.bm-team.tiebreak .bm-team-status { color: #6d28d9; }

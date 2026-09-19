@@ -24,10 +24,85 @@ from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import async_session_maker
 from app.models.selection import Round1Selection
+from app.models.team import Team
 
 logger = logging.getLogger("round1.ws")
 
 router = APIRouter(tags=["websocket"])
+
+
+async def _record_team_ws_connect(team_code: str, room_id: uuid.UUID | None = None) -> None:
+    if not team_code:
+        return
+    try:
+        r = redis.from_url(settings.redis_url)
+        pipe = r.pipeline()
+        pipe.incr(f"team:conn_count:{team_code}")
+        pipe.expire(f"team:conn_count:{team_code}", 180)
+        pipe.set(f"team:online:{team_code}", "1", ex=45)
+        pipe.sadd("active_online_teams", team_code)
+        if room_id:
+            pipe.sadd(f"room:{room_id}:online_teams", team_code)
+        await pipe.execute()
+        await r.close()
+    except Exception:
+        logger.exception("Failed to record team connect for %s", team_code)
+
+
+async def _refresh_team_ws_presence(team_code: str) -> None:
+    if not team_code:
+        return
+    try:
+        r = redis.from_url(settings.redis_url)
+        pipe = r.pipeline()
+        pipe.set(f"team:online:{team_code}", "1", ex=45)
+        pipe.expire(f"team:conn_count:{team_code}", 180)
+        await pipe.execute()
+        await r.close()
+    except Exception:
+        pass
+
+
+async def _record_team_ws_disconnect(team_code: str, room_id: uuid.UUID | None = None) -> None:
+    if not team_code:
+        return
+    try:
+        r = redis.from_url(settings.redis_url)
+        remaining = await r.decr(f"team:conn_count:{team_code}")
+        pipe = r.pipeline()
+        if remaining <= 0:
+            pipe.delete(f"team:conn_count:{team_code}")
+            # Don't drop presence outright: the app also heartbeats over REST
+            # every 3s, and a route change reopens the socket within
+            # milliseconds. Shorten the TTL instead so a genuinely closed tab
+            # disappears from the delivery board within ~15s.
+            pipe.expire(f"team:online:{team_code}", 15)
+            pipe.srem("active_online_teams", team_code)
+            if room_id:
+                pipe.srem(f"room:{room_id}:online_teams", team_code)
+        else:
+            pipe.set(f"team:online:{team_code}", "1", ex=45)
+        await pipe.execute()
+        await r.close()
+    except Exception:
+        logger.exception("Failed to record team disconnect for %s", team_code)
+
+
+async def _resolve_team_code(payload: dict) -> str | None:
+    team_code = payload.get("team_code")
+    if team_code:
+        return team_code
+    team_id_str = payload.get("sub")
+    if not team_id_str:
+        return None
+    try:
+        t_id = uuid.UUID(team_id_str)
+        async with async_session_maker() as db:
+            t = await db.get(Team, t_id)
+            return t.team_code if t else None
+    except Exception:
+        return None
+
 
 
 async def _fetch_room_leaderboard(room_id: uuid.UUID) -> list[dict]:
@@ -117,8 +192,8 @@ async def _fetch_room_leaderboard(room_id: uuid.UUID) -> list[dict]:
                 ELSE NULL
             END AS total_score,
             CASE
-                WHEN (rd.status = 'COMPLETED') THEN
-                    COALESCE(rr.is_qualified, FALSE)
+                WHEN (rd.results_published_at IS NOT NULL) THEN
+                    CASE WHEN rr.tiebreak_pending IS TRUE THEN NULL ELSE COALESCE(rr.is_qualified, FALSE) END
                 ELSE NULL
             END AS is_qualified,
             CASE
@@ -158,11 +233,13 @@ async def _fetch_room_leaderboard(room_id: uuid.UUID) -> list[dict]:
                 ELSE NULL
             END AS live_rank,
                 CASE
-                    WHEN (rd.status = 'COMPLETED') THEN
-                        COALESCE(rr.is_qualified, FALSE)
+                    WHEN (rd.results_published_at IS NOT NULL) THEN
+                        CASE WHEN rr.tiebreak_pending IS TRUE THEN NULL ELSE COALESCE(rr.is_qualified, FALSE) END
                     ELSE NULL
                 END AS is_qualified,
-                COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
+                (rd.results_published_at IS NOT NULL) AS is_published,
+                COALESCE(rr.tiebreak_pending, FALSE) AS tiebreak_pending,
+                FLOOR(EXTRACT(EPOCH FROM rd.results_published_at) * 1000)::BIGINT AS results_broadcast_id
             FROM teams t
             JOIN round1_selections rs ON rs.team_id = t.team_id AND rs.room_id = :room_id
             LEFT JOIN suits st ON st.suit_id = rs.suit_id
@@ -273,8 +350,8 @@ async def _fetch_overall_leaderboard() -> list[dict]:
                 ELSE NULL
             END AS total_score,
             CASE
-                WHEN (rd.status = 'COMPLETED') THEN
-                    COALESCE(rr.is_qualified, FALSE)
+                WHEN (rd.results_published_at IS NOT NULL) THEN
+                    CASE WHEN rr.tiebreak_pending IS TRUE THEN NULL ELSE COALESCE(rr.is_qualified, FALSE) END
                 ELSE NULL
             END AS is_qualified,
             CASE
@@ -312,7 +389,9 @@ async def _fetch_overall_leaderboard() -> list[dict]:
                     )::INT
                 ELSE NULL
             END AS overall_rank,
-                COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
+                (rd.results_published_at IS NOT NULL) AS is_published,
+                COALESCE(rr.tiebreak_pending, FALSE) AS tiebreak_pending,
+                FLOOR(EXTRACT(EPOCH FROM rd.results_published_at) * 1000)::BIGINT AS results_broadcast_id
             FROM teams t
             LEFT JOIN round1_selections rs ON rs.team_id = t.team_id
             LEFT JOIN suits st ON st.suit_id = rs.suit_id
@@ -373,6 +452,7 @@ async def room_leaderboard_ws(
         return
 
     token_type = payload.get("type")
+    team_code = None
     if token_type == "team":
         # Team users: must be assigned to this specific room.
         team_id_str = payload.get("sub")
@@ -388,6 +468,7 @@ async def room_leaderboard_ws(
         if assigned_room is None or assigned_room != room_id:
             await websocket.close(code=4003, reason="Your team is not assigned to this room")
             return
+        team_code = await _resolve_team_code(payload)
     elif token_type == "admin":
         # Admin users: allow any room (room binding enforced at REST layer).
         pass
@@ -396,6 +477,9 @@ async def room_leaderboard_ws(
         return
 
     await websocket.accept()
+    if team_code:
+        await _record_team_ws_connect(team_code, room_id)
+
     redis_client = redis.from_url(settings.redis_url)
     pubsub = redis_client.pubsub()
     channel = f"room:{room_id}:leaderboard"
@@ -414,6 +498,8 @@ async def room_leaderboard_ws(
         try:
             while True:
                 await websocket.receive_text()
+                if team_code:
+                    await _refresh_team_ws_presence(team_code)
         except WebSocketDisconnect:
             pass
         finally:
@@ -425,6 +511,8 @@ async def room_leaderboard_ws(
             except Exception:
                 logger.exception("relay task raised while shutting down")
     finally:
+        if team_code:
+            await _record_team_ws_disconnect(team_code, room_id)
         await pubsub.unsubscribe(channel)
         await pubsub.close()
         await redis_client.close()
@@ -440,11 +528,19 @@ async def overall_leaderboard_ws(
     if payload is None:
         await websocket.close(code=4001, reason="Missing or invalid token")
         return
-    if payload.get("type") not in ("team", "admin"):
+    token_type = payload.get("type")
+    if token_type not in ("team", "admin"):
         await websocket.close(code=4001, reason="Unknown token type")
         return
 
+    team_code = None
+    if token_type == "team":
+        team_code = await _resolve_team_code(payload)
+
     await websocket.accept()
+    if team_code:
+        await _record_team_ws_connect(team_code)
+
     redis_client = redis.from_url(settings.redis_url)
     pubsub = redis_client.pubsub()
     channel = "leaderboard:overall"
@@ -463,6 +559,8 @@ async def overall_leaderboard_ws(
         try:
             while True:
                 await websocket.receive_text()
+                if team_code:
+                    await _refresh_team_ws_presence(team_code)
         except WebSocketDisconnect:
             pass
         finally:
@@ -474,6 +572,8 @@ async def overall_leaderboard_ws(
             except Exception:
                 logger.exception("relay task raised while shutting down")
     finally:
+        if team_code:
+            await _record_team_ws_disconnect(team_code)
         await pubsub.unsubscribe(channel)
         await pubsub.close()
         await redis_client.close()
@@ -490,7 +590,15 @@ async def room_sessions_ws(
         await websocket.close(code=4001, reason="Missing or invalid token")
         return
 
+    token_type = payload.get("type")
+    team_code = None
+    if token_type == "team":
+        team_code = await _resolve_team_code(payload)
+
     await websocket.accept()
+    if team_code:
+        await _record_team_ws_connect(team_code, room_id)
+
     redis_client = redis.from_url(settings.redis_url)
     pubsub = redis_client.pubsub()
     channel = f"room:{room_id}:sessions"
@@ -508,6 +616,8 @@ async def room_sessions_ws(
         try:
             while True:
                 await websocket.receive_text()
+                if team_code:
+                    await _refresh_team_ws_presence(team_code)
         except WebSocketDisconnect:
             pass
         finally:
@@ -517,6 +627,8 @@ async def room_sessions_ws(
             except asyncio.CancelledError:
                 pass
     finally:
+        if team_code:
+            await _record_team_ws_disconnect(team_code, room_id)
         await pubsub.unsubscribe(channel)
         await pubsub.close()
         await redis_client.close()

@@ -1,10 +1,11 @@
+import json
 import logging
 import uuid
 
 logger = logging.getLogger("admin")
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select, text
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_role
@@ -12,7 +13,8 @@ from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from app.models.admin import Admin, AdminRole
 from app.models.results import QualificationRule, RoomResult
-from app.models.round import Room
+from app.models.round import Room, Round
+from app.models.team import Team
 from app.schemas.admin import (
     AdminAccountCreate,
     AdminAccountOut,
@@ -234,7 +236,8 @@ async def get_room_leaderboard_admin(
                     COALESCE(rr.is_qualified, FALSE)
                 ELSE NULL
             END AS is_qualified,
-            (rd.status = 'COMPLETED' AND smm.is_published IS TRUE AND sas.is_published IS TRUE AND skd.is_published IS TRUE AND sjh.is_published IS TRUE) AS is_published
+            (rd.status = 'COMPLETED' AND smm.is_published IS TRUE AND sas.is_published IS TRUE AND skd.is_published IS TRUE AND sjh.is_published IS TRUE) AS is_published,
+            COALESCE(rr.tiebreak_pending, FALSE) AS tiebreak_pending
         FROM teams t
         JOIN round1_selections rs ON rs.team_id = t.team_id AND rs.room_id = :room_id
         LEFT JOIN suits st ON st.suit_id = rs.suit_id
@@ -402,6 +405,105 @@ async def get_room_leaderboard_admin(
     return results
 
 
+@router.get("/rounds/{round_id}/leaderboard", response_model=list[dict])
+async def get_round_leaderboard_admin(
+    round_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_role(AdminRole.ROOM_ADMIN)),
+):
+    """Live standings for every team in the round, in one query. Scores are
+    the same ungated live values as /rooms/{room_id}/leaderboard (admins see
+    scores before games are published; teams do not). Each row carries both
+    `room_rank` (position inside its room) and `overall_rank` (across all
+    rooms), so the console can show the by-room and overall views from a
+    single fetch."""
+    round_obj = await db.get(Round, round_id)
+    if round_obj is None:
+        raise NotFoundError("Round not found")
+
+    query = text("""
+        WITH scored AS (
+            SELECT
+                t.team_id,
+                t.team_code,
+                t.team_name,
+                st.code AS team_suit_code,
+                st.symbol AS team_suit_symbol,
+                r.room_id,
+                r.room_code,
+                r.room_number,
+                COALESCE(mm.score, (
+                    SELECT COALESCE(SUM(mr.round_score), 0)
+                    FROM mindmaze_results mr
+                    JOIN mindmaze_rounds mrd ON mrd.round_id = mr.round_id
+                    WHERE mrd.session_id = smm.session_id AND mr.team_id = t.team_id
+                ), 0)::FLOAT AS mindmaze_score,
+                COALESCE(as_.score, (
+                    SELECT COALESCE(SUM(asr.round_score), 0)
+                    FROM ace_spade_results asr
+                    JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
+                    WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
+                ), 0)::FLOAT AS ace_spade_score,
+                COALESCE(kd.score, (
+                    SELECT GREATEST(0.0, (SELECT COALESCE(COUNT(*), 5) * 20.0 FROM king_diamond_rounds WHERE session_id = skd.session_id) - COALESCE(SUM(kds.round_score), 0))
+                    FROM king_diamond_submissions kds
+                    JOIN king_diamond_rounds kdr ON kdr.round_id = kds.round_id
+                    WHERE kdr.session_id = skd.session_id AND kds.team_id = t.team_id AND kdr.is_closed IS TRUE
+                ), 0.0)::FLOAT AS king_diamond_score,
+                COALESCE(jh.score, (
+                    SELECT COALESCE(SUM(jha.round_score), 0)
+                    FROM jack_heart_answers jha
+                    JOIN jack_heart_rounds jhr ON jhr.round_id = jha.round_id
+                    WHERE jhr.session_id = sjh.session_id AND jha.team_id = t.team_id
+                ), 0)::FLOAT AS jack_heart_score,
+                CASE
+                    WHEN rd.results_published_at IS NULL THEN NULL
+                    WHEN rr.tiebreak_pending IS TRUE THEN NULL
+                    ELSE COALESCE(rr.is_qualified, FALSE)
+                END AS is_qualified,
+                (rd.results_published_at IS NOT NULL) AS is_published,
+                COALESCE(rr.tiebreak_pending, FALSE) AS tiebreak_pending
+            FROM teams t
+            JOIN round1_selections rs ON rs.team_id = t.team_id
+            JOIN rooms r ON r.room_id = rs.room_id AND r.round_id = :round_id
+            JOIN rounds rd ON rd.round_id = r.round_id
+            LEFT JOIN suits st ON st.suit_id = rs.suit_id
+            LEFT JOIN game_sessions smm ON smm.room_id = r.room_id
+                   AND smm.game_id = (SELECT game_id FROM games WHERE code = 'MINDMAZE')
+            LEFT JOIN game_scores mm ON mm.session_id = smm.session_id AND mm.team_id = t.team_id
+            LEFT JOIN game_sessions sas ON sas.room_id = r.room_id
+                   AND sas.game_id = (SELECT game_id FROM games WHERE code = 'ACE_SPADE')
+            LEFT JOIN game_scores as_ ON as_.session_id = sas.session_id AND as_.team_id = t.team_id
+            LEFT JOIN game_sessions skd ON skd.room_id = r.room_id
+                   AND skd.game_id = (SELECT game_id FROM games WHERE code = 'KING_DIAMOND')
+            LEFT JOIN game_scores kd ON kd.session_id = skd.session_id AND kd.team_id = t.team_id
+            LEFT JOIN game_sessions sjh ON sjh.room_id = r.room_id
+                   AND sjh.game_id = (SELECT game_id FROM games WHERE code = 'JACK_HEART')
+            LEFT JOIN game_scores jh ON jh.session_id = sjh.session_id AND jh.team_id = t.team_id
+            LEFT JOIN room_results rr ON rr.room_id = r.room_id AND rr.team_id = t.team_id
+        )
+        SELECT
+            team_id, team_code, team_name, team_suit_code, team_suit_symbol,
+            room_id, room_code, room_number,
+            mindmaze_score, ace_spade_score, king_diamond_score, jack_heart_score,
+            (mindmaze_score + ace_spade_score + king_diamond_score + jack_heart_score)::FLOAT AS total_score,
+            RANK() OVER (
+                PARTITION BY room_id
+                ORDER BY (mindmaze_score + ace_spade_score + king_diamond_score + jack_heart_score) DESC, team_code
+            )::INT AS room_rank,
+            RANK() OVER (
+                ORDER BY (mindmaze_score + ace_spade_score + king_diamond_score + jack_heart_score) DESC, team_code
+            )::INT AS overall_rank,
+            is_qualified,
+            is_published,
+            tiebreak_pending
+        FROM scored
+        ORDER BY overall_rank, team_code;
+    """)
+    rows = (await db.execute(query, {"round_id": str(round_id)})).mappings().all()
+    return [dict(row) for row in rows]
+
+
 @router.put("/rounds/{round_id}/qualification-rule", response_model=QualificationRuleOut)
 async def upsert_qualification_rule(
     round_id: uuid.UUID,
@@ -477,25 +579,68 @@ async def publish_leaderboard(
     await _publish("leaderboard:overall")
 
 
-@router.post("/rounds/{round_id}/publish-leaderboard", status_code=status.HTTP_204_NO_CONTENT)
+# Every SQL reader derives the broadcast id the same way so the value a team
+# device echoes back in its ack matches what the delivery board expects.
+BROADCAST_ID_SQL = "FLOOR(EXTRACT(EPOCH FROM results_published_at) * 1000)::BIGINT"
+
+
+@router.post("/rounds/{round_id}/publish-leaderboard")
 async def publish_round_leaderboard(
     round_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _admin=Depends(require_role(AdminRole.SUPER_ADMIN)),
 ):
-    """Publishes leaderboard and Round 2 qualification results for all rooms within a round at once.
-    Marks the round as COMPLETED, publishes all sessions, computes qualifications, and broadcasts."""
+    """Publishes final results and Round 2 qualifications for every room in the
+    round and broadcasts them to all team devices. Safe to call repeatedly:
+    each call stamps a new rounds.results_published_at (the broadcast id), so
+    every device replays its outcome and acknowledges again.
+
+    Everything — closing open subrounds, publishing sessions, computing each
+    room's results — happens in ONE transaction that only flips the round to
+    published at the very end. Readers (the 3s team poll, the WS relay) can
+    therefore never observe a published round whose room_results are missing,
+    which used to make every team look eliminated for a moment."""
+    from datetime import datetime, timezone
+
+    from app.models.ace_spade import AceSpadeRound
     from app.models.game import GameSession, SessionStatus
+    from app.models.jack_heart import JackHeartRound
+    from app.models.king_diamond import KingDiamondRound
+    from app.models.mindmaze import MindmazeRound
     from app.models.round import RoomStatus, Round, RoundStatus
-    from sqlalchemy import text
 
     round_obj = await db.get(Round, round_id)
-    if round_obj is not None:
-        round_obj.status = RoundStatus.COMPLETED
+    if round_obj is None:
+        raise NotFoundError("Round not found")
+
+    now = datetime.now(timezone.utc)
 
     sessions = (
         await db.execute(select(GameSession).where(GameSession.round_id == round_id))
     ).scalars().all()
+
+    session_ids = [s.session_id for s in sessions]
+    if session_ids:
+        # Force-close whatever is still open. A MindMaze / Ace of Spades /
+        # Jack of Hearts sub-round is "closed" once its deadline has passed
+        # (see sessions.py); King of Diamonds also carries an explicit flag.
+        # Never-started sub-rounds are closed too so the round is
+        # unambiguously over; teams that never submitted simply score 0.
+        for round_model in (MindmazeRound, AceSpadeRound, KingDiamondRound, JackHeartRound):
+            await db.execute(
+                update(round_model)
+                .where(
+                    round_model.session_id.in_(session_ids),
+                    or_(round_model.deadline.is_(None), round_model.deadline > now),
+                )
+                .values(deadline=now, start_time=func.coalesce(round_model.start_time, now))
+            )
+        await db.execute(
+            update(KingDiamondRound)
+            .where(KingDiamondRound.session_id.in_(session_ids), KingDiamondRound.is_closed == False)
+            .values(is_closed=True)
+        )
+
     for s in sessions:
         s.is_published = True
         s.status = SessionStatus.COMPLETED
@@ -505,24 +650,200 @@ async def publish_round_leaderboard(
     ).scalars().all()
     for r in rooms:
         r.status = RoomStatus.COMPLETED
+    await db.flush()
 
-    await db.commit()
+    # Compute every room's scores, ranks and qualifications inside this same
+    # transaction (commit=False), so they land together with the publish flag.
+    for r in rooms:
+        await results_service.recompute_room_results(db, room_id=r.room_id, commit=False)
+
+    # A tie straddling the qualification cutoff holds just the tied teams and
+    # opens a Death Card tiebreak for the room (see tiebreak_service).
+    from app.services import tiebreak_service
 
     for r in rooms:
-        try:
-            await results_service.recompute_room_results(db, room_id=r.room_id)
-        except Exception:
-            logger.exception("Failed to recompute results for room %s", r.room_id)
-            try:
-                await db.execute(text("SELECT fn_compute_room_results(:room_id)"), {"room_id": str(r.room_id)})
-                await db.commit()
-            except Exception:
-                pass
+        await tiebreak_service.detect_and_create(db, room_id=r.room_id)
+
+    round_obj.status = RoundStatus.COMPLETED
+    if round_obj.end_time is None:
+        round_obj.end_time = now
+    round_obj.results_published_at = now
+    await db.commit()
+
+    broadcast_id = (
+        await db.execute(
+            text(f"SELECT {BROADCAST_ID_SQL} FROM rounds WHERE round_id = :round_id"),
+            {"round_id": str(round_id)},
+        )
+    ).scalar()
 
     for r in rooms:
         await _publish(f"room:{r.room_id}:leaderboard")
         await _publish(f"room:{r.room_id}:sessions")
     await _publish("leaderboard:overall")
+    await _publish(f"round:{round_id}:published")
+
+    return {
+        "round_id": str(round_id),
+        "broadcast_id": int(broadcast_id) if broadcast_id is not None else None,
+        "results_published_at": now.isoformat(),
+        "rooms": len(rooms),
+    }
+
+
+@router.get("/rounds/{round_id}/team-connections")
+async def get_round_team_connections(
+    round_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_role(AdminRole.ROOM_ADMIN)),
+):
+    """Delivery board for the final-results broadcast: every team in the round
+    grouped by room, whether its device is connected right now, and whether it
+    has acknowledged the CURRENT broadcast. Acks are stored per broadcast id,
+    so a re-send puts every device back to "sent, awaiting ack". Each ack also
+    carries the outcome the device actually displayed, which is compared with
+    the server's result for that team (is_verified)."""
+    import redis.asyncio as redis
+    from app.core.config import settings
+    from app.models.round import Round
+
+    round_obj = await db.get(Round, round_id)
+    if round_obj is None:
+        raise NotFoundError("Round not found")
+
+    broadcast_id = (
+        await db.execute(
+            text(f"SELECT {BROADCAST_ID_SQL} FROM rounds WHERE round_id = :round_id"),
+            {"round_id": str(round_id)},
+        )
+    ).scalar()
+    broadcast_id = int(broadcast_id) if broadcast_id is not None else None
+    is_published = broadcast_id is not None
+
+    room_rows = (
+        await db.execute(
+            text("""
+                SELECT room_id, room_code, room_number
+                  FROM rooms
+                 WHERE round_id = :round_id
+                 ORDER BY room_number
+            """),
+            {"round_id": str(round_id)},
+        )
+    ).mappings().all()
+
+    # Every team with a seat in one of this round's rooms, plus the outcome the
+    # server will send it (only meaningful once published).
+    team_rows = (
+        await db.execute(
+            text("""
+                SELECT rm.room_id, t.team_id, t.team_code, t.team_name, rr.is_qualified,
+                       COALESCE(rr.tiebreak_pending, FALSE) AS tiebreak_pending
+                  FROM rooms rm
+                  JOIN round1_selections rs ON rs.room_id = rm.room_id
+                  JOIN teams t ON t.team_id = rs.team_id
+                  LEFT JOIN room_results rr ON rr.room_id = rm.room_id AND rr.team_id = t.team_id
+                 WHERE rm.round_id = :round_id
+                 ORDER BY rm.room_number, t.team_code
+            """),
+            {"round_id": str(round_id)},
+        )
+    ).mappings().all()
+    seated_ids = {row["team_id"] for row in team_rows}
+    unassigned = [
+        {"team_id": str(t.team_id), "team_code": t.team_code, "team_name": t.team_name}
+        for t in (await db.execute(select(Team).order_by(Team.team_code))).scalars().all()
+        if t.team_id not in seated_ids
+    ]
+
+    team_codes = [row["team_code"] for row in team_rows]
+    online: dict[str, bool] = {}
+    acks: dict[str, dict] = {}
+    if team_codes:
+        redis_client = redis.from_url(settings.redis_url)
+        try:
+            pipe = redis_client.pipeline()
+            for code in team_codes:
+                pipe.exists(f"team:online:{code}")
+            if is_published:
+                pipe.hgetall(f"round:{round_id}:results_ack:{broadcast_id}")
+            res = await pipe.execute()
+            online = {code: bool(res[i]) for i, code in enumerate(team_codes)}
+            if is_published:
+                raw = res[len(team_codes)] or {}
+                for k, v in raw.items():
+                    code = k.decode() if isinstance(k, bytes) else k
+                    try:
+                        acks[code] = json.loads(v.decode() if isinstance(v, bytes) else v)
+                    except Exception:
+                        acks[code] = {"at": None, "outcome": None}
+        except Exception:
+            logger.exception("Failed to query Redis for team connections")
+        finally:
+            await redis_client.close()
+
+    rooms_out = {
+        str(row["room_id"]): {
+            "room_id": str(row["room_id"]),
+            "room_code": row["room_code"],
+            "room_number": row["room_number"],
+            "team_count": 0,
+            "connected_count": 0,
+            "acknowledged_count": 0,
+            "teams": [],
+        }
+        for row in room_rows
+    }
+    total_connected = 0
+    total_acked = 0
+    for row in team_rows:
+        code = row["team_code"]
+        expected = None
+        if is_published:
+            if row["tiebreak_pending"]:
+                expected = "TIEBREAK"
+            else:
+                expected = "QUALIFIED" if row["is_qualified"] else "ELIMINATED"
+        ack = acks.get(code)
+        is_connected = bool(online.get(code))
+        is_acked = ack is not None
+        acked_outcome = ack.get("outcome") if ack else None
+        is_verified = is_acked and (acked_outcome is None or acked_outcome == expected)
+        room = rooms_out[str(row["room_id"])]
+        room["teams"].append(
+            {
+                "team_id": str(row["team_id"]),
+                "team_code": code,
+                "team_name": row["team_name"],
+                "is_connected": is_connected,
+                "is_acknowledged": is_acked,
+                "acknowledged_at": ack.get("at") if ack else None,
+                "expected_outcome": expected,
+                "acked_outcome": acked_outcome,
+                "is_verified": is_verified,
+            }
+        )
+        room["team_count"] += 1
+        if is_connected:
+            room["connected_count"] += 1
+            total_connected += 1
+        if is_acked:
+            room["acknowledged_count"] += 1
+            total_acked += 1
+
+    return {
+        "round_id": str(round_id),
+        "is_published": is_published,
+        "broadcast_id": broadcast_id,
+        "results_published_at": round_obj.results_published_at.isoformat()
+        if round_obj.results_published_at
+        else None,
+        "total_teams": len(team_rows),
+        "connected_count": total_connected,
+        "acknowledged_count": total_acked,
+        "rooms": list(rooms_out.values()),
+        "unassigned_teams": unassigned,
+    }
 
 
 # ---------------------------------------------------------------------------

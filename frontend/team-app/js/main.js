@@ -1,14 +1,14 @@
-import { api, getToken, syncServerTime } from '../../shared/js/api.js?v=v54_final_results_gate';
-import { renderLogin } from './screens/login.js?v=v54_final_results_gate';
-import { renderSelection } from './screens/selection.js?v=v54_final_results_gate';
-import { renderWaiting } from './screens/waiting.js?v=v54_final_results_gate';
-import { renderHome, checkAndTriggerGlobalOutcome } from './screens/home.js?v=v54_final_results_gate';
-import { renderMindmaze } from './screens/games/mindmaze.js?v=v54_final_results_gate';
-import { renderAceSpade } from './screens/games/ace-spade.js?v=v54_final_results_gate';
-import { renderKingDiamond } from './screens/games/king-diamond.js?v=v54_final_results_gate';
-import { renderJackHeart } from './screens/games/jack-heart.js?v=v54_final_results_gate';
-import { renderLeaderboard } from './screens/leaderboard.js?v=v54_final_results_gate';
-import { renderAccount } from './screens/account.js?v=v54_final_results_gate';
+import { api, getToken, syncServerTime } from '../../shared/js/api.js?v=v56_death_card_tiebreak';
+import { renderLogin } from './screens/login.js?v=v56_death_card_tiebreak';
+import { renderSelection } from './screens/selection.js?v=v56_death_card_tiebreak';
+import { renderWaiting } from './screens/waiting.js?v=v56_death_card_tiebreak';
+import { renderHome, checkAndTriggerGlobalOutcome } from './screens/home.js?v=v56_death_card_tiebreak';
+import { renderMindmaze } from './screens/games/mindmaze.js?v=v56_death_card_tiebreak';
+import { renderAceSpade } from './screens/games/ace-spade.js?v=v56_death_card_tiebreak';
+import { renderKingDiamond } from './screens/games/king-diamond.js?v=v56_death_card_tiebreak';
+import { renderJackHeart } from './screens/games/jack-heart.js?v=v56_death_card_tiebreak';
+import { renderLeaderboard } from './screens/leaderboard.js?v=v56_death_card_tiebreak';
+import { renderAccount } from './screens/account.js?v=v56_death_card_tiebreak';
 
 const root = document.getElementById('app');
 
@@ -31,11 +31,13 @@ export function navigate(hash) {
   if (location.hash === hash) { route(); } else { location.hash = hash; }
 }
 
-// Global View-Ack & Qualification Synchronizer
+// Presence heartbeat + published-results check. The results ack itself is
+// sent from checkAndTriggerGlobalOutcome once the outcome is on screen, so an
+// ack on the admin board always means "seen", never just "polling".
 async function syncGlobalState() {
   if (!getToken('team')) return;
   try {
-    await api.team.ackPublishedResults().catch(() => {});
+    await api.team.heartbeat().catch(() => {});
     await checkAndTriggerGlobalOutcome();
   } catch (_) { }
 }

@@ -20,6 +20,7 @@ from app.api.v1 import (
     selection,
     sessions,
     teams,
+    tiebreak,
 )
 from app.core.config import settings, validate_production_settings
 from app.core.exceptions import register_exception_handlers
@@ -82,6 +83,7 @@ API_PREFIX = "/api/v1"
 
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(teams.router, prefix=API_PREFIX)
+app.include_router(tiebreak.router, prefix=API_PREFIX)
 app.include_router(rounds.router, prefix=API_PREFIX)
 app.include_router(selection.router, prefix=API_PREFIX)
 app.include_router(sessions.router, prefix=API_PREFIX)

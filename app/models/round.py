@@ -34,6 +34,9 @@ class Round(Base):
     )
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set on every "Publish Final Results"; NULL until the admin publishes.
+    # Its epoch-ms value is the broadcast id team devices acknowledge against.
+    results_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

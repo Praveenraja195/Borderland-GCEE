@@ -28,10 +28,17 @@ async def _publish(channel: str) -> None:
         logger.exception("Failed to publish to redis channel %s", channel)
 
 
-async def recompute_room_results(db: AsyncSession, *, room_id: uuid.UUID) -> None:
+async def recompute_room_results(
+    db: AsyncSession, *, room_id: uuid.UUID, commit: bool = True
+) -> None:
     """Manually aggregates all subround scores into game_scores for every game
     session in the room, re-runs fn_compute_room_results(room_id), and broadcasts
-    updated leaderboards to WebSocket subscribers."""
+    updated leaderboards to WebSocket subscribers.
+
+    With commit=False the work stays in the caller's open transaction and
+    nothing is broadcast; the caller commits and publishes itself. The final
+    results publish uses this so readers never see a published round whose
+    room_results are not computed yet."""
     room = await db.get(Room, room_id)
     if room is None:
         raise NotFoundError("Room not found")
@@ -216,6 +223,42 @@ async def recompute_room_results(db: AsyncSession, *, room_id: uuid.UUID) -> Non
 
     await db.flush()
     await db.execute(text("SELECT fn_compute_room_results(:room_id)"), {"room_id": str(room_id)})
+
+    # Ensure qualifications are calculated whenever the room or round is completed, or all sessions are published
+    await db.execute(
+        text("""
+            UPDATE room_results rr
+            SET is_qualified = (rr.rank <= COALESCE(
+                (SELECT qr.top_n
+                 FROM qualification_rules qr
+                 JOIN rooms rm ON rm.round_id = qr.round_id
+                 WHERE rm.room_id = rr.room_id
+                   AND (qr.room_id = rr.room_id OR qr.room_id IS NULL)
+                 ORDER BY qr.room_id NULLS LAST
+                 LIMIT 1), 1))
+            FROM rooms rm
+            JOIN rounds rd ON rd.round_id = rm.round_id
+            WHERE rr.room_id = :room_id
+              AND rm.room_id = rr.room_id
+              AND (
+                  rd.status = 'COMPLETED'
+                  OR rm.status = 'COMPLETED'
+                  OR (
+                      SELECT COUNT(*)
+                      FROM game_sessions gs
+                      WHERE gs.room_id = :room_id AND gs.is_published IS TRUE
+                  ) >= COALESCE(NULLIF((SELECT COUNT(*) FROM round_games rg WHERE rg.round_id = rm.round_id), 0), 1)
+              );
+        """),
+        {"room_id": str(room_id)},
+    )
+    # fn_compute_room_results has just rewritten rank / is_qualified from raw
+    # totals; put any live Death Card tiebreak back on top of that.
+    from app.services import tiebreak_service
+
+    await tiebreak_service.apply_existing(db, room_id=room_id)
+    if not commit:
+        return
     await db.commit()
 
     # Broadcast updates

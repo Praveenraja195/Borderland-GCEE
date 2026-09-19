@@ -79,8 +79,9 @@ export function showCameraLockedModal() {
 
 import { startCountdown } from '../../../shared/js/ui.js';
 import { LiveChannel } from '../../../shared/js/ws.js';
+import { showTiebreakScreen, removeTiebreakScreen, tiebreakRevealAge } from './tiebreak.js';
 
-export function triggerLaserEliminationSequence() {
+export function triggerLaserEliminationSequence(broadcastId = null) {
   const existing = document.getElementById('laser-elimination-overlay');
   if (existing) return;
 
@@ -147,6 +148,9 @@ export function triggerLaserEliminationSequence() {
   const overlay = document.createElement('div');
   overlay.id = 'laser-elimination-overlay';
   overlay.className = 'bl-laser-overlay';
+  // Tag the overlay with the broadcast it belongs to so a re-send can replay
+  // the full sequence instead of being swallowed by the "already showing" guard.
+  if (broadcastId != null) overlay.dataset.broadcastId = String(broadcastId);
   overlay.innerHTML = `
     <!-- Searing Alice in Borderland Sky Laser Beam -->
     <div class="bl-laser-beam">
@@ -528,6 +532,13 @@ export function renderHome(root, navigate) {
   }
 }
 
+// Which broadcast this device has already animated / acknowledged. Keyed by
+// results_broadcast_id (changes on every admin re-send) so each send replays
+// the outcome exactly once and produces exactly one fresh ack.
+const SHOWN_KEY = 'bl_results_shown_bid';
+const ACKED_KEY = 'bl_results_acked_bid';
+let ackInFlight = false;
+
 export async function checkAndTriggerGlobalOutcome(lbData = null) {
   if (!getToken('team')) return;
   try {
@@ -539,49 +550,76 @@ export async function checkAndTriggerGlobalOutcome(lbData = null) {
     if (!rows && roomId) {
       rows = await api.team.roomLeaderboard(roomId).catch(() => []);
     }
-    if (!rows || !rows.length) return;
+    if (!Array.isArray(rows)) rows = [];
 
     const myEntry = rows.find(r => r.team_code === team.team_code);
-    // STRICT RULE: Only process final outcomes when all games are published and round is COMPLETED
-    if (myEntry && myEntry.is_published === true && typeof myEntry.is_qualified === 'boolean') {
-      // Acknowledge receipt of final published results to backend so admin panel confirms delivery
-      api.team.ackPublishedResults().catch(() => {});
+    const bid = myEntry?.results_broadcast_id != null ? String(myEntry.results_broadcast_id) : null;
+    const held = myEntry?.tiebreak_pending === true;
 
-      if (myEntry.is_qualified === true) {
-        // Qualified for Round 2: Remove any elimination overlay
+    // Final results are only "published" once the admin explicitly broadcast
+    // them (results_broadcast_id set); a merely COMPLETED round is not enough.
+    // A team held for a Death Card tiebreak has no outcome yet — it gets the
+    // tiebreak screen, and its real outcome (same broadcast id) once the
+    // tiebreak resolves.
+    if (myEntry && myEntry.is_published === true && bid && (held || typeof myEntry.is_qualified === 'boolean')) {
+      const outcome = held ? 'TIEBREAK' : myEntry.is_qualified ? 'QUALIFIED' : 'ELIMINATED';
+      const shownKey = `${bid}:${outcome}`;
+      const isNew = sessionStorage.getItem(SHOWN_KEY) !== shownKey;
+
+      if (held) {
         const laserOverlay = document.getElementById('laser-elimination-overlay');
         if (laserOverlay) laserOverlay.remove();
+        const openVisa = document.getElementById('visa-app-modal');
+        if (openVisa) openVisa.remove();
+        showTiebreakScreen();
+      } else {
+        // Coming out of a tiebreak: let the final reveal sit on screen for a
+        // moment before the laser / VISA takes over.
+        const age = tiebreakRevealAge();
+        if (age !== null && age < 4000) return;
+        removeTiebreakScreen();
 
-        // Automatically trigger VISA Extended animation for qualified teams
-        const alreadyOpened = sessionStorage.getItem('bl_qualified_auto_opened');
-        if (!alreadyOpened && !document.getElementById('visa-app-modal')) {
-          sessionStorage.setItem('bl_qualified_auto_opened', '1');
-          showVisaModal({ isQualifiedNotice: true, myEntry });
-        }
-      } else if (myEntry.is_qualified === false) {
-        // Defensive guard: if EVERY team in the room shows is_qualified=false,
-        // it's likely a transient state where room_results hasn't been
-        // computed yet. Skip triggering the laser and wait for the next update.
-        const publishedRows = rows.filter(r => r.is_published === true && typeof r.is_qualified === 'boolean');
-        const anyQualified = publishedRows.some(r => r.is_qualified === true);
-        if (!anyQualified && publishedRows.length > 1) {
-          // All teams show not-qualified — likely a transient race. Wait.
-          return;
-        }
+        if (myEntry.is_qualified === true) {
+          // Qualified for Round 2: never show the elimination overlay.
+          const laserOverlay = document.getElementById('laser-elimination-overlay');
+          if (laserOverlay) laserOverlay.remove();
 
-        // Eliminated: Trigger Sky Laser Strike
-        const existingLaser = document.getElementById('laser-elimination-overlay');
-        if (!existingLaser) {
-          triggerLaserEliminationSequence();
+          // VISA Extended animation once per broadcast (a re-send replays it).
+          if (isNew) {
+            const openVisa = document.getElementById('visa-app-modal');
+            if (openVisa) openVisa.remove();
+            showVisaModal({ isQualifiedNotice: true, myEntry });
+          }
+        } else {
+          // Eliminated: the Sky Laser strike. Replay from the top when the
+          // broadcast is new; otherwise just make sure GAME OVER stays up
+          // (e.g. after a reload).
+          const existingLaser = document.getElementById('laser-elimination-overlay');
+          if (existingLaser && existingLaser.dataset.broadcastId !== shownKey) existingLaser.remove();
+          if (!document.getElementById('laser-elimination-overlay')) {
+            triggerLaserEliminationSequence(shownKey);
+          }
         }
       }
+
+      if (isNew) sessionStorage.setItem(SHOWN_KEY, shownKey);
+
+      // Acknowledge THIS broadcast + outcome, with what we just displayed.
+      // Kept retrying on later polls until the server has confirmed it.
+      if (localStorage.getItem(ACKED_KEY) !== shownKey && !ackInFlight) {
+        ackInFlight = true;
+        api.team.ackPublishedResults({ broadcast_id: Number(bid), outcome })
+          .then(() => localStorage.setItem(ACKED_KEY, shownKey))
+          .catch(() => {})
+          .finally(() => { ackInFlight = false; });
+      }
     } else {
-      // Games still in progress or not all published - reset flag and ensure no premature laser screen
-      sessionStorage.removeItem('bl_qualified_auto_opened');
+      // Not published (or reset): clear any outcome that is still on screen
+      // and forget the last broadcast so the next publish plays fresh.
+      sessionStorage.removeItem(SHOWN_KEY);
+      removeTiebreakScreen();
       const laserOverlay = document.getElementById('laser-elimination-overlay');
       if (laserOverlay) laserOverlay.remove();
     }
   } catch (_) {}
 }
-
-

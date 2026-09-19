@@ -28,6 +28,8 @@ class RoomResult(Base):
     )
     rank: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     is_qualified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # True while the team is held for a Death Card tiebreak (see models/tiebreak.py).
+    tiebreak_pending: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

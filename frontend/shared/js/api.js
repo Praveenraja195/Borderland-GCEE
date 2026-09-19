@@ -312,8 +312,17 @@ export const api = {
       apiFetch(`/jack-heart/rooms/${roomId}/leaderboard`, { kind: 'team' }),
     viewAck: (sessionId, view_type, round_id = null) =>
       apiFetch(`/sessions/${sessionId}/view-ack`, { method: 'POST', kind: 'team', body: { view_type, round_id } }),
-    ackPublishedResults: () =>
-      apiFetch('/teams/view-published-results', { method: 'POST', kind: 'team' }),
+    // Called only after the device has actually rendered its outcome, with the
+    // broadcast id it rendered and what it showed, so the admin delivery board
+    // can verify each team saw the right result for the current send.
+    ackPublishedResults: (payload = null) =>
+      apiFetch('/teams/view-published-results', { method: 'POST', kind: 'team', body: payload || undefined }),
+    heartbeat: () =>
+      apiFetch('/teams/heartbeat', { method: 'POST', kind: 'team' }),
+    // Death Card tiebreaker (only while this team is held for one).
+    tiebreakState: () => apiFetch('/tiebreak/me', { kind: 'team' }),
+    tiebreakPick: (card_index) =>
+      apiFetch('/tiebreak/me/pick', { method: 'POST', kind: 'team', body: { card_index } }),
   },
 
   // Demo (practice) rounds. Deliberately mirrors the shape of api.team's
@@ -516,11 +525,18 @@ export const api = {
     recomputeResults: (roomId) => apiFetch(`/admin/rooms/${roomId}/recompute-results`, { method: 'POST', kind: 'admin' }),
     roomResults: (roomId) => apiFetch(`/admin/rooms/${roomId}/results`, { kind: 'admin' }),
     roomLeaderboard: (roomId) => apiFetch(`/admin/rooms/${roomId}/leaderboard`, { kind: 'admin' }),
+    roundLeaderboard: (roundId) => apiFetch(`/admin/rounds/${roundId}/leaderboard`, { kind: 'admin' }),
     setQualificationRule: (roundId, top_n, room_id) =>
       apiFetch(`/admin/rounds/${roundId}/qualification-rule`, { method: 'PUT', kind: 'admin', body: room_id ? { top_n, room_id } : { top_n } }),
     qualificationRules: (roundId) => apiFetch(`/admin/rounds/${roundId}/qualification-rules`, { kind: 'admin' }),
     publishLeaderboard: (roomId) => apiFetch(`/admin/rooms/${roomId}/publish-leaderboard`, { method: 'POST', kind: 'admin' }),
     publishRoundLeaderboard: (roundId) => apiFetch(`/admin/rounds/${roundId}/publish-leaderboard`, { method: 'POST', kind: 'admin' }),
+    getTeamConnections: (roundId) => apiFetch(`/admin/rounds/${roundId}/team-connections`, { kind: 'admin' }),
+    // Death Card tiebreakers for the round.
+    tiebreaks: (roundId) => apiFetch(`/tiebreak/admin/rounds/${roundId}`, { kind: 'admin' }),
+    tiebreakStart: (sessionId) => apiFetch(`/tiebreak/admin/sessions/${sessionId}/start`, { method: 'POST', kind: 'admin' }),
+    tiebreakAdvance: (sessionId) => apiFetch(`/tiebreak/admin/sessions/${sessionId}/advance`, { method: 'POST', kind: 'admin' }),
+    tiebreakReset: (sessionId) => apiFetch(`/tiebreak/admin/sessions/${sessionId}/reset`, { method: 'POST', kind: 'admin' }),
 
     // Round 2 qualifiers. `winners` is the same data as JSON so the console
     // can show the list before downloading it; both recompute room results

@@ -5,6 +5,7 @@ import { renderRoomsScreen } from './screens/rooms.js?v=v36_publish_btn_fix';
 import { renderRoomControl } from './screens/room-control.js?v=v36_publish_btn_fix';
 import { renderTeamsAdmin } from './screens/teams-admin.js?v=v36_publish_btn_fix';
 import { renderAdminAccounts } from './screens/admin-accounts.js?v=v36_publish_btn_fix';
+import { renderLeaderboardScreen } from './screens/leaderboard.js?v=v36_publish_btn_fix';
 
 const root = document.getElementById('app');
 
@@ -29,6 +30,7 @@ function matchRoute(hash) {
   if (parts[0] === 'rooms' && parts[1]) return { screen: 'room-control', roomId: parts[1], roundId: parts[2] };
   if (parts[0] === 'rooms') return { screen: 'rooms' };
   if (parts[0] === 'teams') return { screen: 'teams' };
+  if (parts[0] === 'leaderboard') return { screen: 'leaderboard' };
   if (parts[0] === 'admins') return { screen: 'admins' };
   return { screen: 'dashboard' };
 }
@@ -80,6 +82,7 @@ function route() {
       <a href="#/dashboard" data-screen="dashboard"><span class="nav-icon"><span class="mi">dashboard</span></span> Dashboard</a>
       <a href="#/rooms" data-screen="rooms"><span class="nav-icon"><span class="mi">meeting_room</span></span> Rooms</a>
       <a href="#/teams" data-screen="teams"><span class="nav-icon"><span class="mi">group</span></span> Teams</a>
+      <a href="#/leaderboard" data-screen="leaderboard"><span class="nav-icon"><span class="mi">leaderboard</span></span> Leaderboard</a>
       <a href="#/admins" data-screen="admins" class="${role === 'SUPER_ADMIN' ? '' : 'disabled'}"><span class="nav-icon"><span class="mi">admin_panel_settings</span></span> Admin Accounts</a>
       <div class="role-tag">${role.replace('_', ' ')} · <a href="#" id="logout-link">Log out</a></div>
     </nav>
@@ -102,6 +105,7 @@ function route() {
     case 'rooms':        currentCleanup = renderRoomsScreen(main, navigate, role) ?? null; break;
     case 'room-control': currentCleanup = renderRoomControl(main, navigate, match.roomId, match.roundId) ?? null; break;
     case 'teams':        currentCleanup = renderTeamsAdmin(main, navigate, role) ?? null; break;
+    case 'leaderboard':  currentCleanup = renderLeaderboardScreen(main, navigate) ?? null; break;
     case 'admins':
       if (role !== 'SUPER_ADMIN') { main.innerHTML = `<p class="status-note">SUPER_ADMIN only.</p>`; break; }
       currentCleanup = renderAdminAccounts(main, navigate) ?? null;

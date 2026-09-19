@@ -18,6 +18,10 @@ class RoomLeaderboardEntry(BaseModel):
     live_rank: int | None = None
     is_qualified: bool | None = None
     is_published: bool = False
+    # Epoch-ms of rounds.results_published_at; changes on every re-publish so
+    # devices can tell a fresh broadcast from one they already showed.
+    results_broadcast_id: int | None = None
+    tiebreak_pending: bool = False
 
     @field_validator("is_published", mode="before")
     @classmethod
@@ -39,6 +43,8 @@ class OverallLeaderboardEntry(BaseModel):
     is_qualified: bool | None = None
     overall_rank: int | None = None
     is_published: bool = False
+    results_broadcast_id: int | None = None
+    tiebreak_pending: bool = False
 
     @field_validator("is_published", mode="before")
     @classmethod

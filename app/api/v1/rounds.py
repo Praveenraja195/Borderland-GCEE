@@ -153,6 +153,7 @@ async def auto_create_round(
         round_number=round_obj.round_number,
         name=round_obj.name,
         status=round_obj.status,
+        results_published_at=round_obj.results_published_at,
         rooms=room_details,
     )
 
@@ -253,6 +254,7 @@ async def get_round_detail(
         round_number=round_obj.round_number,
         name=round_obj.name,
         status=round_obj.status,
+        results_published_at=round_obj.results_published_at,
         rooms=room_details,
     )
 

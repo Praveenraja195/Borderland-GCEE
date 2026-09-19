@@ -34,6 +34,7 @@ class RoundOut(BaseModel):
     status: RoundStatus
     start_time: datetime | None
     end_time: datetime | None
+    results_published_at: datetime | None = None
 
 
 class RoomOut(BaseModel):
@@ -67,6 +68,7 @@ class RoundDetailOut(BaseModel):
     round_number: int
     name: str
     status: RoundStatus
+    results_published_at: datetime | None = None
     rooms: list[RoomDetailOut]
 
 

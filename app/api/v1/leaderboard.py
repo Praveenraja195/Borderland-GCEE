@@ -134,11 +134,13 @@ async def get_room_leaderboard(
                 ELSE NULL
             END AS live_rank,
             CASE
-                WHEN (rd.status = 'COMPLETED') THEN
-                    COALESCE(rr.is_qualified, FALSE)
+                WHEN (rd.results_published_at IS NOT NULL) THEN
+                    CASE WHEN rr.tiebreak_pending IS TRUE THEN NULL ELSE COALESCE(rr.is_qualified, FALSE) END
                 ELSE NULL
             END AS is_qualified,
-            COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
+            (rd.results_published_at IS NOT NULL) AS is_published,
+            COALESCE(rr.tiebreak_pending, FALSE) AS tiebreak_pending,
+            FLOOR(EXTRACT(EPOCH FROM rd.results_published_at) * 1000)::BIGINT AS results_broadcast_id
         FROM teams t
         JOIN round1_selections rs ON rs.team_id = t.team_id AND rs.room_id = :room_id
         LEFT JOIN suits st ON st.suit_id = rs.suit_id
@@ -243,8 +245,8 @@ async def get_overall_leaderboard(db: AsyncSession = Depends(get_db), _current_t
                 ELSE NULL
             END AS total_score,
             CASE
-                WHEN (rd.status = 'COMPLETED') THEN
-                    COALESCE(rr.is_qualified, FALSE)
+                WHEN (rd.results_published_at IS NOT NULL) THEN
+                    CASE WHEN rr.tiebreak_pending IS TRUE THEN NULL ELSE COALESCE(rr.is_qualified, FALSE) END
                 ELSE NULL
             END AS is_qualified,
             CASE
@@ -279,7 +281,9 @@ async def get_overall_leaderboard(db: AsyncSession = Depends(get_db), _current_t
                     )::INT
                 ELSE NULL
             END AS overall_rank,
-            COALESCE(rd.status = 'COMPLETED', FALSE) AS is_published
+            (rd.results_published_at IS NOT NULL) AS is_published,
+            COALESCE(rr.tiebreak_pending, FALSE) AS tiebreak_pending,
+            FLOOR(EXTRACT(EPOCH FROM rd.results_published_at) * 1000)::BIGINT AS results_broadcast_id
         FROM teams t
         LEFT JOIN round1_selections rs ON rs.team_id = t.team_id
         LEFT JOIN suits st ON st.suit_id = rs.suit_id

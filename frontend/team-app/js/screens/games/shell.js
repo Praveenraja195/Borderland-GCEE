@@ -3,7 +3,7 @@ import { HEADERS, GAMES, STATUS, INSTRUCTIONS, DEMO } from '../../../../shared/j
 import { startCountdown, formatCountdown } from '../../../../shared/js/ui.js';
 import { getRoundContext, setRoundContext, renderRoundContextForm, clearRoundContext } from '../../round-context.js';
 import { LiveChannel } from '../../../../shared/js/ws.js';
-import { showVisaModal } from '../home.js';
+import { checkAndTriggerGlobalOutcome } from '../home.js';
 
 const TABS = [
   { code: 'MINDMAZE', route: '#/game/mindmaze' },
@@ -987,31 +987,11 @@ export function renderGameScreen(root, navigate, opts) {
       body.innerHTML = `<p class="status-note error">${err.message}</p>`;
     }
 
-    // ── Show Visa modal ONLY after admin publishes final results to all teams ──
-    // Check if round is COMPLETED (not just when Jack of Hearts published)
+    // ── Final outcome (VISA Extended / Sky Laser) after the admin publishes ──
+    // One code path decides this for the whole app (keyed on the broadcast
+    // id, so a re-send replays it and each send is acknowledged once).
     if (!isDemoActive && opts.gameCode === 'JACK_HEART' && roomId) {
-      try {
-        const team = await api.team.me().catch(() => null);
-        const rows = await api.team.roomLeaderboard(roomId).catch(() => []);
-        const sessions = await api.team.roomSessions(roomId).catch(() => []);
-
-        if (team && rows && rows.length && sessions && sessions.length) {
-          const myEntry = rows.find(r => r.team_code === team.team_code);
-          const roundStatus = sessions.find(s => s.game_code === 'JACK_HEART')?.round?.status || sessions[0]?.round?.status;
-
-          // Show Visa modal when round is COMPLETED and team is qualified
-          if (myEntry && myEntry.is_qualified === true && roundStatus === 'COMPLETED') {
-            const alreadyOpened = sessionStorage.getItem('bl_qualified_auto_opened');
-            const existingVisa = document.getElementById('visa-app-modal');
-            if (!alreadyOpened && !existingVisa) {
-              sessionStorage.setItem('bl_qualified_auto_opened', '1');
-              showVisaModal({ isQualifiedNotice: true, myEntry });
-            }
-          }
-        }
-      } catch (_) {
-        // Silently fail if qualification check doesn't work
-      }
+      checkAndTriggerGlobalOutcome();
     }
   }
 

@@ -24,4 +24,5 @@ from app.models import (  # noqa: E402,F401
     round,
     selection,
     team,
+    tiebreak,
 )

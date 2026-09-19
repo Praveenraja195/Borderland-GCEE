@@ -2,7 +2,6 @@ import { api } from '../../../shared/js/api.js';
 import { openWinnersModal } from './winners-export.js';
 import { GAMES } from '../../../shared/js/copy.js';
 import { toast } from '../../../shared/js/ui.js';
-import { LiveChannel } from '../../../shared/js/ws.js';
 
 const ALL_GAMES = ['MINDMAZE', 'ACE_SPADE', 'KING_DIAMOND', 'JACK_HEART'];
 
@@ -272,7 +271,7 @@ export function renderDashboard(root, navigate, role) {
                 ? '✅ Final results and Round 2 qualifications are active across all team devices!' 
                 : allGamesCompleted 
                   ? '🎉 All games finished across all rooms! Ready to broadcast final results to all teams.' 
-                  : '⚠️ Some games or subrounds have not been completed yet across rooms.'}
+                  : '⚠️ Some games or subrounds have not been completed yet across rooms. (Broadcast will finalize & publish)'}
             </div>
           </div>
         </div>
@@ -291,6 +290,8 @@ export function renderDashboard(root, navigate, role) {
           </button>
         </div>
       </div>
+
+      <div id="tiebreak-section"></div>
 
       <div class="section-divider"><span class="mi">sports_esports</span> Game Services</div>
       <div class="game-controls" id="game-controls"></div>
@@ -353,6 +354,8 @@ export function renderDashboard(root, navigate, role) {
     }
 
     renderGameControls(body.querySelector('#game-controls'), detail, gameSessions, demoSessions);
+    lastTiebreakJson = '';
+    refreshTiebreaks();
   }
 
   function renderGameControls(el, detail, gameSessions = [], demoSessions = []) {
@@ -683,6 +686,143 @@ export function renderDashboard(root, navigate, role) {
     `;
   }
 
+  // ── Death Card tiebreakers ─────────────────────────────────────────────
+  // Present only when publish found a tie at a room's qualification cutoff.
+  // The server runs the rounds itself once started (each device poll advances
+  // it); these controls just start it, force a reveal, or reset it.
+  let tiebreakPoll = null;
+  let tiebreakBusy = false;
+  let lastTiebreakJson = '';
+
+  function tbTimeLeft(iso) {
+    return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 1000));
+  }
+
+  function renderTiebreakCard(sess) {
+    const rnd = sess.current_round;
+    const alive = sess.participants.filter(p => p.status === 'ALIVE').length;
+    let statusPill;
+    if (sess.status === 'COMPLETED') {
+      statusPill = `<span class="pill COMPLETED">● RESOLVED · ${sess.winner_team_codes.join(', ')} through</span>`;
+    } else if (sess.status === 'ACTIVE' && rnd && !rnd.is_resolved) {
+      statusPill = `<span class="pill IN_PROGRESS">● ROUND ${rnd.round_number} · ${tbTimeLeft(rnd.deadline)}s</span>`;
+    } else if (sess.status === 'ACTIVE') {
+      statusPill = `<span class="pill ACTIVE">● ROUND ${rnd ? rnd.round_number : ''} REVEALED · next in a moment</span>`;
+    } else {
+      statusPill = `<span class="pill NOT_STARTED">● WAITING TO START</span>`;
+    }
+
+    const chips = sess.participants.map(p => `
+      <span class="tb-a-chip ${p.status.toLowerCase()}">
+        ${p.team_code}${p.status === 'ELIMINATED' ? ` · out R${p.eliminated_in_round}` : p.status === 'WINNER' ? ' · through' : ''}
+      </span>`).join('');
+
+    let cards = '';
+    if (rnd) {
+      const byIdx = new Map(rnd.picks.map(pk => [pk.card_index, pk]));
+      cards = `<div class="tb-a-cards">${Array.from({ length: rnd.card_count }, (_, i) => {
+        const pk = byIdx.get(i);
+        const isJoker = rnd.is_resolved && rnd.joker_index === i;
+        return `
+          <div class="tb-a-card ${pk ? 'taken' : ''} ${rnd.is_resolved ? (isJoker ? 'joker' : 'safe') : ''}" title="Card ${i + 1}">
+            <div class="tb-a-card-face">${rnd.is_resolved ? (isJoker ? '🃏' : '·') : (pk ? '✓' : '?')}</div>
+            <div class="tb-a-card-who">${pk ? pk.team_code + (pk.auto_assigned ? ' (auto)' : '') : '—'}</div>
+          </div>`;
+      }).join('')}</div>`;
+    }
+
+    const history = sess.rounds.length
+      ? `<div class="tb-a-history">${sess.rounds.map(r => `<span>R${r.round_number}: ${r.eliminated_team_code ? `<strong>${r.eliminated_team_code}</strong> drew the Joker` : 'no Joker drawn'}</span>`).join('')}</div>`
+      : '';
+
+    let actions = '';
+    if (sess.status === 'PENDING') {
+      actions += `<button class="btn primary" data-tb-act="start" data-tb-id="${sess.session_id}"><span class="mi">play_arrow</span> Start tiebreaker</button>`;
+    } else if (sess.status === 'ACTIVE' && rnd && !rnd.is_resolved) {
+      actions += `<button class="btn" data-tb-act="advance" data-tb-id="${sess.session_id}"><span class="mi">visibility</span> Reveal now</button>`;
+    } else if (sess.status === 'ACTIVE') {
+      actions += `<button class="btn" data-tb-act="advance" data-tb-id="${sess.session_id}"><span class="mi">skip_next</span> Next round now</button>`;
+    }
+    if (role === 'SUPER_ADMIN') {
+      actions += `<button class="btn danger" data-tb-act="reset" data-tb-id="${sess.session_id}"><span class="mi">restart_alt</span> Reset</button>`;
+    }
+
+    return `
+      <div class="svc-card tb-a-card-wrap">
+        <div class="svc-card-header">
+          <div class="svc-card-title">
+            <div class="svc-icon red"><span class="mi">style</span></div>
+            Room ${sess.room_code} · Death Card
+          </div>
+          ${statusPill}
+        </div>
+        <div class="svc-card-body">
+          <div class="tb-a-meta">
+            ${sess.participants.length} teams tied at <strong>${Number(sess.tie_total).toFixed(1)} pts</strong>
+            for <strong>${sess.slots}</strong> place${sess.slots === 1 ? '' : 's'} · ${alive} still in
+          </div>
+          <div class="tb-a-chips">${chips}</div>
+          ${cards}
+          ${history}
+          <div class="btn-row" style="margin-top:12px;">${actions}</div>
+        </div>
+      </div>`;
+  }
+
+  function renderTiebreakSection(sessions) {
+    const el = body.querySelector('#tiebreak-section');
+    if (!el) return;
+    if (!sessions || !sessions.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `
+      <div class="section-divider"><span class="mi">style</span> Death Card Tiebreakers</div>
+      <div class="tb-a-grid">${sessions.map(renderTiebreakCard).join('')}</div>
+    `;
+    el.querySelectorAll('[data-tb-act]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (tiebreakBusy) return;
+        const act = btn.dataset.tbAct;
+        const id = btn.dataset.tbId;
+        if (act === 'start' && !confirm('Start the Death Card tiebreaker for this room?\n\nTied teams will see the cards on their devices and each round lasts 20 seconds.')) return;
+        if (act === 'reset' && !confirm('Reset this tiebreaker?\n\nAll rounds are wiped and the tied teams start again from round 1.')) return;
+        if (act === 'advance' && btn.textContent.includes('Reveal') && !confirm('Reveal now?\n\nTeams that have not picked get a random leftover card.')) return;
+        tiebreakBusy = true;
+        btn.disabled = true;
+        try {
+          if (act === 'start') await api.admin.tiebreakStart(id);
+          else if (act === 'advance') await api.admin.tiebreakAdvance(id);
+          else if (act === 'reset') await api.admin.tiebreakReset(id);
+          lastTiebreakJson = '';
+          await refreshTiebreaks();
+        } catch (err) {
+          toast(err.message, { error: true });
+        } finally {
+          tiebreakBusy = false;
+        }
+      });
+    });
+  }
+
+  async function refreshTiebreaks() {
+    if (!roundData?.round_id || !root.isConnected) return;
+    try {
+      const sessions = await api.admin.tiebreaks(roundData.round_id);
+      const json = JSON.stringify(sessions);
+      // Always redraw while a round is counting down (the timer text changes);
+      // otherwise only when something changed, so buttons aren't yanked mid-click.
+      const counting = sessions.some(s => s.status === 'ACTIVE' && s.current_round && !s.current_round.is_resolved);
+      if (json !== lastTiebreakJson || counting || !body.querySelector('#tiebreak-section')?.innerHTML) {
+        lastTiebreakJson = json;
+        renderTiebreakSection(sessions);
+      }
+    } catch (_) {}
+  }
+
+  // Delivery board for "Publish Final Results to All Teams". One room card per
+  // room; one chip per team. Before publishing a chip is a presence dot (blue =
+  // device connected and ready). After publishing it becomes a delivery ring:
+  // sending → received (the device acknowledged THIS broadcast and echoed the
+  // outcome it displayed, which is checked against the server's result).
+  // Publishing again re-sends to everyone and resets every ring.
   async function openPublishFinalResultsModal(roundId, detail, allGamesCompleted) {
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
@@ -691,333 +831,221 @@ export function renderDashboard(root, navigate, role) {
         <div class="bl-bm-header">
           <div class="bl-bm-header-content">
             <div class="bl-bm-header-left">
-              <div class="bl-bm-radar-icon">
-                <span class="mi">sensors</span>
-              </div>
+              <div class="bl-bm-radar-icon"><span class="mi">sensors</span></div>
               <div>
-                <div class="bl-bm-title">BROADCAST FINAL RESULTS & QUALIFICATIONS</div>
-                <div class="bl-bm-subtitle">Real-time WebSocket transmission of Round 1 standings, VISA extensions & laser strikes to all team screens.</div>
+                <div class="bl-bm-title">Publish Final Results to All Teams</div>
+                <div class="bl-bm-subtitle">全チームに結果公開 · every device receives its own Round 2 outcome and confirms it</div>
               </div>
             </div>
-            <div>
-              <span class="pill" id="modal-broadcast-status-badge">● LOADING...</span>
-            </div>
+            <span class="pill" id="bm-status-pill">● LOADING…</span>
           </div>
         </div>
 
-        <div class="bl-bm-body" id="modal-broadcast-body">
+        <div class="bl-bm-body" id="bm-body">
           <div class="spinner" style="margin: 60px auto;"></div>
         </div>
 
         <div class="bl-bm-footer">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <button type="button" class="btn success solid" id="modal-broadcast-trigger-btn" style="padding: 10px 22px; font-weight: 800; font-size: 0.9rem;">
-              <span class="mi">campaign</span>
-              <span id="modal-broadcast-btn-label">Broadcast Final Results to All Teams</span>
+          <div class="bm-legend" id="bm-legend"></div>
+          <div class="bm-footer-actions">
+            <button type="button" class="btn" id="bm-close-btn">Close</button>
+            <button type="button" class="btn success solid" id="bm-publish-btn">
+              <span class="mi">campaign</span> <span id="bm-publish-label">Publish Results</span>
             </button>
-          </div>
-          <div>
-            <button type="button" class="btn" id="modal-broadcast-close-btn">Close</button>
           </div>
         </div>
       </div>
     `;
-
     document.body.appendChild(backdrop);
 
-    let modalPoll = null;
-    const activeChannels = [];
+    let board = null;          // last /team-connections response
     let isBroadcasting = false;
+    let poll = null;
 
     function closeModal() {
-      if (modalPoll) {
-        clearInterval(modalPoll);
-        modalPoll = null;
-      }
-      activeChannels.forEach(ch => {
-        try { ch.close(); } catch (_) {}
-      });
+      if (poll) clearInterval(poll);
+      poll = null;
       backdrop.remove();
     }
-
-    backdrop.querySelector('#modal-broadcast-close-btn').onclick = closeModal;
+    backdrop.querySelector('#bm-close-btn').onclick = closeModal;
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
 
-    // Connect WebSocket listeners for instant real-time live updates
-    try {
-      const overallCh = new LiveChannel('/leaderboard/overall', () => {
-        refreshContent();
-      }, 'admin');
-      activeChannels.push(overallCh);
+    const OUTCOME_LABEL = { QUALIFIED: 'Qualified', ELIMINATED: 'Eliminated', TIEBREAK: 'Tiebreak' };
 
-      const rooms = detail?.rooms || [];
-      rooms.forEach(r => {
-        const rId = r.room_id || r.id;
-        if (rId) {
-          activeChannels.push(new LiveChannel(`/rooms/${rId}/sessions`, () => refreshContent(), 'admin'));
-          activeChannels.push(new LiveChannel(`/rooms/${rId}/leaderboard`, () => refreshContent(), 'admin'));
-        }
-      });
-    } catch (_) {}
+    // Ring is an SVG circle (r=15 → circumference ≈ 94). `fill` is 0..1.
+    function ring(state, fill, icon) {
+      const circ = 94;
+      return `
+        <span class="bm-ring ${state}">
+          <svg viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="bm-ring-bg" cx="18" cy="18" r="15"></circle>
+            <circle class="bm-ring-fg" cx="18" cy="18" r="15"
+              stroke-dasharray="${circ}" stroke-dashoffset="${Math.round(circ * (1 - fill))}"></circle>
+          </svg>
+          <span class="bm-ring-icon">${icon}</span>
+        </span>`;
+    }
 
-    const SUIT_SYMBOLS = { SPADE: '♠', HEART: '♥', DIAMOND: '♦', CLUB: '♣' };
+    function chipState(t, isPublished) {
+      if (!isPublished) {
+        return t.is_connected
+          ? { cls: 'ready',   ring: ring('ready', 0, '<span class="bm-dot blue"></span>'),  text: 'Connected' }
+          : { cls: 'offline', ring: ring('offline', 0, '<span class="bm-dot gray"></span>'), text: 'Offline' };
+      }
+      // Held for a Death Card tiebreak: the device shows the tiebreak screen
+      // and acks 'TIEBREAK'; its real outcome arrives when the draw resolves.
+      if (t.expected_outcome === 'TIEBREAK') {
+        if (t.is_acknowledged) return { cls: 'tiebreak', ring: ring('tiebreak', 1, '<span class="mi">style</span>'), text: 'In tiebreak' };
+        if (t.is_connected) return { cls: 'sending', ring: ring('sending', 0.6, '<span class="mi spin">sync</span>'), text: 'Sending…' };
+        return { cls: 'pending', ring: ring('pending', 0.25, '<span class="bm-dot gray"></span>'), text: 'Offline' };
+      }
+      // Tiebreak just resolved: the old 'TIEBREAK' ack is stale, not wrong.
+      if (t.is_acknowledged && !t.is_verified && t.acked_outcome === 'TIEBREAK') {
+        return { cls: 'sending', ring: ring('sending', 0.6, '<span class="mi spin">sync</span>'), text: 'Sending…' };
+      }
+      if (t.is_acknowledged && !t.is_verified) {
+        return { cls: 'mismatch', ring: ring('mismatch', 1, '<span class="mi">priority_high</span>'),
+                 text: `Showed ${OUTCOME_LABEL[t.acked_outcome] || t.acked_outcome || '?'} — expected ${OUTCOME_LABEL[t.expected_outcome] || '?'}` };
+      }
+      if (t.is_acknowledged) {
+        // The green ring already says "received"; the label is the outcome the device showed.
+        return { cls: 'confirmed', ring: ring('confirmed', 1, '<span class="mi">check</span>'),
+                 text: OUTCOME_LABEL[t.expected_outcome] || 'Received' };
+      }
+      if (t.is_connected) {
+        return { cls: 'sending', ring: ring('sending', 0.6, '<span class="mi spin">sync</span>'), text: 'Sending…' };
+      }
+      // Offline devices get the result from the 3s poll as soon as they come back.
+      return { cls: 'pending', ring: ring('pending', 0.25, '<span class="bm-dot gray"></span>'), text: 'Offline' };
+    }
 
-    async function refreshContent() {
-      if (isBroadcasting) return; // preserve active transmission UI
-      try {
-        const [winnersList, roundObj, gameSessions] = await Promise.all([
-          api.admin.winners(roundId, true).catch(() => []),
-          api.admin.getRound(roundId).catch(() => detail),
-          api.admin.getRoundGameSessions(roundId).catch(() => []),
-        ]);
+    function renderTeamChip(t, isPublished) {
+      const st = chipState(t, isPublished);
+      const ackTime = t.acknowledged_at ? new Date(t.acknowledged_at).toLocaleTimeString() : '';
+      const title = `${t.team_name || t.team_code}${ackTime ? ` · confirmed ${ackTime}` : ''}`;
+      return `
+        <div class="bm-team ${st.cls}" title="${title.replace(/"/g, '&quot;')}">
+          ${st.ring}
+          <span class="bm-team-code">${t.team_code}</span>
+          <span class="bm-team-status">${st.text}</span>
+        </div>`;
+    }
 
-        const isPublished = (roundObj?.status === 'COMPLETED') || (gameSessions.length > 0 && gameSessions.every(s => (s.session || s).is_published));
-        
-        const statusBadge = backdrop.querySelector('#modal-broadcast-status-badge');
-        if (statusBadge) {
-          statusBadge.className = `pill ${isPublished ? 'COMPLETED' : 'IN_PROGRESS'}`;
-          statusBadge.textContent = isPublished ? '● BROADCAST CONFIRMED & ACTIVE' : '● READY TO BROADCAST';
-        }
+    function renderBoard() {
+      const body = backdrop.querySelector('#bm-body');
+      const pill = backdrop.querySelector('#bm-status-pill');
+      const publishBtn = backdrop.querySelector('#bm-publish-btn');
+      const publishLabel = backdrop.querySelector('#bm-publish-label');
+      const legend = backdrop.querySelector('#bm-legend');
+      if (!body || !board) return;
 
-        const btnLabel = backdrop.querySelector('#modal-broadcast-btn-label');
-        if (btnLabel) {
-          btnLabel.textContent = isPublished 
-            ? 'Re-broadcast Final Results to All Teams' 
-            : 'Broadcast Final Results to All Teams Now';
-        }
+      const isPublished = !!board.is_published;
+      const total = board.total_teams || 0;
 
-        // Collect acknowledged teams from gameSessions
-        const acknowledgedTeams = new Set();
-        (gameSessions || []).forEach(s => {
-          const pvt = s.published_viewed_teams || s.session?.published_viewed_teams || [];
-          pvt.forEach(code => acknowledgedTeams.add(code));
-        });
-
-        const totalTeams = winnersList.length;
-        const qualifiedCount = winnersList.filter(e => e.is_qualified === true).length;
-        const eliminatedCount = winnersList.filter(e => e.is_qualified === false).length;
-        const ackCount = winnersList.filter(e => acknowledgedTeams.has(e.team_code)).length;
-
-        const bodyEl = backdrop.querySelector('#modal-broadcast-body');
-        if (!bodyEl) return;
-
-        // Progress bar percentage
-        let progressPct = 0;
-        let progressLabel = '';
-        if (isPublished) {
-          progressPct = 100;
-          progressLabel = ackCount > 0 
-            ? `100% Broadcasted · ${ackCount}/${totalTeams} Confirmed Received`
-            : `100% Broadcasted · WS Payload Delivered`;
+      if (pill) {
+        if (isBroadcasting) {
+          pill.className = 'pill IN_PROGRESS';
+          pill.textContent = '● SENDING…';
+        } else if (isPublished) {
+          const allIn = total > 0 && board.acknowledged_count >= total;
+          pill.className = `pill ${allIn ? 'COMPLETED' : 'ACTIVE'}`;
+          const at = board.results_published_at ? new Date(board.results_published_at).toLocaleTimeString() : '';
+          pill.textContent = `● ${board.acknowledged_count}/${total} RECEIVED${at ? ` · SENT ${at}` : ''}`;
         } else {
-          progressPct = allGamesCompleted ? 25 : 10;
-          progressLabel = allGamesCompleted ? 'All games completed · Ready to transmit' : 'Standby · Games in progress';
+          pill.className = 'pill NOT_STARTED';
+          pill.textContent = `● ${board.connected_count}/${total} CONNECTED · NOT SENT YET`;
         }
+      }
 
-        bodyEl.innerHTML = `
-          <div class="bl-bm-progress-card">
-            <div class="bl-bm-progress-header">
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span class="mi" style="font-size:16px; color:#2563eb;">wifi_tethering</span>
-                <span>DEVICE TRANSMISSION & RECEIPT STATUS</span>
-              </div>
-              <span id="bl-bm-progress-label" style="color: ${isPublished ? '#10b981' : '#2563eb'}; font-weight: 800;">
-                ${progressLabel}
-              </span>
-            </div>
-            <div class="bl-bm-progress-bar-bg">
-              <div id="bl-bm-fill" class="bl-bm-progress-bar-fill" style="width: ${progressPct}%;"></div>
-            </div>
-            <div class="bl-bm-stat-pills">
-              <span class="bl-bm-stat-pill total">
-                <span class="mi" style="font-size:14px;">devices</span>
-                ${totalTeams} Connected Teams
-              </span>
-              <span class="bl-bm-stat-pill qualified">
-                <span class="mi" style="font-size:14px;">workspace_premium</span>
-                ${qualifiedCount} Qualified for Round 2 (VISA Extended)
-              </span>
-              <span class="bl-bm-stat-pill eliminated">
-                <span class="mi" style="font-size:14px;">bolt</span>
-                ${eliminatedCount} Eliminated (Sky Laser)
-              </span>
-              ${isPublished ? `
-                <span class="bl-bm-stat-pill" style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;">
-                  <span class="mi" style="font-size:14px;">check_circle</span>
-                  ${ackCount} / ${totalTeams} Acknowledged on Screen
+      if (publishBtn) {
+        publishBtn.disabled = isBroadcasting;
+        publishLabel.textContent = isBroadcasting
+          ? 'Sending…'
+          : isPublished ? 'Send Results Again' : 'Publish Results';
+      }
+
+      if (legend) {
+        const anyTiebreak = (board.rooms || []).some(r => r.teams.some(t => t.expected_outcome === 'TIEBREAK'));
+        legend.innerHTML = isPublished
+          ? `<span><span class="bm-dot green"></span> Received</span>
+             <span><span class="bm-dot amber"></span> Sending</span>
+             ${anyTiebreak ? '<span><span class="bm-dot purple"></span> In tiebreak</span>' : ''}
+             <span><span class="bm-dot gray"></span> Offline</span>`
+          : `<span><span class="bm-dot blue"></span> Connected &amp; ready</span>
+             <span><span class="bm-dot gray"></span> Offline</span>`;
+      }
+
+      const rooms = board.rooms || [];
+      const unassigned = board.unassigned_teams || [];
+      body.innerHTML = `
+        <div class="bm-rooms">
+          ${rooms.length === 0 ? `
+            <div class="bm-empty"><span class="mi">meeting_room</span> No rooms in this round yet.</div>
+          ` : rooms.map(room => `
+            <div class="bm-room">
+              <div class="bm-room-head">
+                <span class="bm-room-code"><span class="mi">meeting_room</span> ${room.room_code}</span>
+                <span class="bm-room-count">
+                  ${isPublished
+                    ? `${room.acknowledged_count}/${room.team_count} received`
+                    : `${room.connected_count}/${room.team_count} connected`}
                 </span>
-              ` : ''}
+              </div>
+              <div class="bm-team-grid">
+                ${room.teams.length
+                  ? room.teams.map(t => renderTeamChip(t, isPublished)).join('')
+                  : '<div class="bm-room-empty">No teams seated in this room</div>'}
+              </div>
             </div>
-          </div>
+          `).join('')}
+        </div>
+        ${unassigned.length ? `
+          <div class="bm-unassigned">
+            <span class="mi">person_off</span>
+            ${unassigned.length} team${unassigned.length === 1 ? '' : 's'} not seated in any room won't receive results:
+            ${unassigned.map(t => t.team_code).join(', ')}
+          </div>` : ''}
+      `;
+    }
 
-          <div style="font-size: 0.78rem; font-weight: 800; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 10px; display:flex; align-items:center; justify-content:space-between;">
-            <span>Connected Teams & WebSocket Transmission Status</span>
-            <span style="font-size:0.7rem; color:#64748b; font-weight:600;">
-              Live Socket: <span style="color:#10b981; font-weight:800;">CONNECTED ●</span>
-            </span>
-          </div>
-
-          <div class="bl-bm-teams-list">
-            ${winnersList.map(t => {
-              const rank = t.rank || 1;
-              const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : '';
-              const suitCode = (t.suit_code || 'SPADE').toUpperCase();
-              const suitSymbol = SUIT_SYMBOLS[suitCode] || '♠';
-              const totalVal = t.total_score !== null && t.total_score !== undefined ? Number(t.total_score).toFixed(1) : '0.0';
-
-              const isQualified = t.is_qualified === true;
-              const isEliminated = t.is_qualified === false;
-              const isAcked = acknowledgedTeams.has(t.team_code);
-
-              let deliveryBadgeHtml = '';
-              if (!isPublished) {
-                deliveryBadgeHtml = `
-                  <span class="bl-bm-delivery-badge standby">
-                    <span class="pulse-dot blue"></span>
-                    <span>Ready to Broadcast</span>
-                  </span>
-                `;
-              } else if (isAcked) {
-                deliveryBadgeHtml = `
-                  <span class="bl-bm-delivery-badge confirmed">
-                    <span class="pulse-dot green"></span>
-                    <span>✓ Confirmed Received on Device</span>
-                  </span>
-                `;
-              } else {
-                deliveryBadgeHtml = `
-                  <span class="bl-bm-delivery-badge delivered">
-                    <span class="pulse-dot blue"></span>
-                    <span>✓ Dispatched via WebSocket</span>
-                  </span>
-                `;
-              }
-
-              return `
-                <div class="bl-bm-team-row" id="team-row-${t.team_code}">
-                  <div class="bl-bm-team-left">
-                    <span class="bl-sb-rank-badge ${rankClass}">#${rank}</span>
-                    <span class="bl-sb-suit-icon ${suitCode.toLowerCase()}" title="${suitCode}">${suitSymbol}</span>
-                    <div class="bl-bm-team-info">
-                      <div class="bl-bm-team-code">
-                        ${t.team_code}
-                        ${t.room_code ? `<span style="font-size:0.72rem; color:#64748b; font-weight:600; background:#f1f5f9; padding:1px 6px; border-radius:4px;">${t.room_code}</span>` : ''}
-                      </div>
-                      <div class="bl-bm-team-name">${t.team_name || 'Team ' + t.team_code}</div>
-                    </div>
-                  </div>
-
-                  <div class="bl-bm-team-scores">
-                    <div class="bl-bm-pts">
-                      ${totalVal} <span style="font-size:0.7rem; color:#64748b;">PTS</span>
-                    </div>
-
-                    <div>
-                      ${isQualified 
-                        ? '<span class="bl-bm-outcome-tag qualified">🌟 QUALIFIED FOR ROUND 2</span>' 
-                        : isEliminated 
-                        ? '<span class="bl-bm-outcome-tag eliminated">💥 ELIMINATED</span>' 
-                        : '<span class="bl-bm-outcome-tag" style="background:#f1f5f9; color:#64748b;">PENDING</span>'}
-                    </div>
-
-                    <div id="delivery-status-${t.team_code}">
-                      ${deliveryBadgeHtml}
-                    </div>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `;
+    async function refresh() {
+      try {
+        board = await api.admin.getTeamConnections(roundId);
+        renderBoard();
       } catch (err) {
-        const bodyEl = backdrop.querySelector('#modal-broadcast-body');
-        if (bodyEl) bodyEl.innerHTML = `<p class="status-note error" style="padding:16px;">Error preparing broadcast: ${err.message}</p>`;
+        const body = backdrop.querySelector('#bm-body');
+        if (body && !board) body.innerHTML = `<p class="status-note error" style="padding:16px;">${err.message}</p>`;
       }
     }
 
-    await refreshContent();
+    async function publish() {
+      if (isBroadcasting) return;
+      const msg = board?.is_published
+        ? 'Send the final results to all team devices again?\n\nEvery device will replay its outcome (VISA Extended / Sky Laser) and confirm receipt again.'
+        : allGamesCompleted
+          ? 'Publish final results and Round 2 qualifications to all team devices now?'
+          : '⚠️ Some games or sub-rounds are not finished yet.\n\nPublishing will close them, compute the final results, and send every team its Round 2 outcome.\n\nProceed?';
+      if (!confirm(msg)) return;
 
-    // Wire broadcast trigger button with lively step-by-step animation
-    const triggerBtn = backdrop.querySelector('#modal-broadcast-trigger-btn');
-    if (triggerBtn) {
-      triggerBtn.addEventListener('click', async () => {
-        triggerBtn.disabled = true;
-        isBroadcasting = true;
-
-        const progressLabel = backdrop.querySelector('#bl-bm-progress-label');
-        const progressBar = backdrop.querySelector('#bl-bm-fill');
-        const statusBadge = backdrop.querySelector('#modal-broadcast-status-badge');
-
-        if (statusBadge) {
-          statusBadge.className = 'pill IN_PROGRESS';
-          statusBadge.textContent = '● BROADCASTING IN PROGRESS...';
-        }
-
-        // Stage 1: Connecting & preparing WS payload
-        if (progressBar) {
-          progressBar.classList.add('broadcasting');
-          progressBar.style.width = '35%';
-        }
-        if (progressLabel) {
-          progressLabel.textContent = 'Encoding standings & qualification payloads...';
-          progressLabel.style.color = '#2563eb';
-        }
-        triggerBtn.innerHTML = '<span class="mi spin">autorenew</span> Transmitting WS Packets...';
-
-        // Animate team delivery badges to "Transmitting..."
-        backdrop.querySelectorAll('[id^="delivery-status-"]').forEach(el => {
-          el.innerHTML = `
-            <span class="bl-bm-delivery-badge transmitting">
-              <span class="pulse-dot amber"></span>
-              <span>⚡ Sending WebSocket packet...</span>
-            </span>
-          `;
-        });
-
-        await new Promise(r => setTimeout(r, 450));
-
-        // Stage 2: Broadcast across all room channels
-        if (progressBar) progressBar.style.width = '70%';
-        if (progressLabel) progressLabel.textContent = 'Broadcasting to all rooms via WebSocket...';
-
-        try {
-          await api.admin.publishRoundLeaderboard(roundId);
-
-          // Stage 3: Confirmed
-          if (progressBar) {
-            progressBar.style.width = '100%';
-            progressBar.classList.remove('broadcasting');
-          }
-          if (progressLabel) {
-            progressLabel.textContent = '100% Broadcasted · Active on all devices';
-            progressLabel.style.color = '#10b981';
-          }
-          if (statusBadge) {
-            statusBadge.className = 'pill COMPLETED';
-            statusBadge.textContent = '● BROADCAST CONFIRMED & ACTIVE';
-          }
-
-          toast('🎉 Final results & Round 2 qualifications broadcasted to all team devices!');
-          isBroadcasting = false;
-          await refreshContent();
-          load(); // Refresh dashboard in background
-        } catch (err) {
-          isBroadcasting = false;
-          toast(err.message, { error: true });
-          if (statusBadge) {
-            statusBadge.className = 'pill ERROR';
-            statusBadge.textContent = '● BROADCAST ERROR';
-          }
-        } finally {
-          triggerBtn.disabled = false;
-          const btnLabel = backdrop.querySelector('#modal-broadcast-btn-label');
-          if (btnLabel) btnLabel.textContent = 'Re-broadcast Final Results to All Teams';
-          triggerBtn.innerHTML = '<span class="mi">campaign</span> <span id="modal-broadcast-btn-label">Re-broadcast Final Results to All Teams</span>';
-        }
-      });
+      isBroadcasting = true;
+      renderBoard();
+      try {
+        await api.admin.publishRoundLeaderboard(roundId);
+        toast(board?.is_published ? '📡 Results re-sent to all team devices.' : '🎉 Final results published to all team devices!');
+        await refresh();
+        load();
+      } catch (err) {
+        toast(err.message, { error: true });
+      } finally {
+        isBroadcasting = false;
+        renderBoard();
+      }
     }
 
-    modalPoll = setInterval(refreshContent, 2000);
+    backdrop.querySelector('#bm-publish-btn').addEventListener('click', publish);
+
+    await refresh();
+    poll = setInterval(refresh, 2000);
   }
 
   function openDemoStartModal(code, roundId) {
@@ -1517,7 +1545,7 @@ export function renderDashboard(root, navigate, role) {
 
 
 
-  load();
+  load().then(refreshTiebreaks);
   pollInterval = setInterval(() => {
     if (!root.isConnected) {
       clearInterval(pollInterval);
@@ -1526,8 +1554,13 @@ export function renderDashboard(root, navigate, role) {
     if (document.querySelector('.modal-backdrop')) return;
     load(true);
   }, 2500);
+  tiebreakPoll = setInterval(() => {
+    if (!root.isConnected) { clearInterval(tiebreakPoll); return; }
+    refreshTiebreaks();
+  }, 1500);
 
   return () => {
     if (pollInterval) clearInterval(pollInterval);
+    if (tiebreakPoll) clearInterval(tiebreakPoll);
   };
 }
