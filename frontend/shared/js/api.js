@@ -47,21 +47,47 @@ export function getServerNow() {
   return Date.now() + serverTimeOffset;
 }
 
-export async function syncServerTime() {
-  try {
-    const t0 = Date.now();
-    const res = await fetch(`${getApiBase()}/time`);
-    const t1 = Date.now();
-    if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data.server_time_ms === 'number') {
-        const rtt = t1 - t0;
-        const serverNow = data.server_time_ms + (rtt / 2);
-        serverTimeOffset = Math.round(serverNow - t1);
-        preciseTimeSynced = true;
-      }
+// Best sync seen recently: { offset, rtt, at }. A single /time sample can be
+// off by up to half its round-trip when the network is jittery (event Wi-Fi),
+// so each sync takes a few samples and trusts the one with the lowest RTT —
+// the standard NTP trick. A worse sample never overrides a better recent one.
+let bestSync = null;
+const SYNC_SAMPLES = 3;
+const SYNC_STALE_MS = 60000;
+const SYNC_JITTER_MS = 15;
+
+async function sampleServerTime() {
+  const t0 = Date.now();
+  const res = await fetch(`${getApiBase()}/time`, { cache: 'no-store' });
+  const t1 = Date.now();
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data || typeof data.server_time_ms !== 'number') return null;
+  const rtt = t1 - t0;
+  // The server stamped its clock roughly mid-flight.
+  return { offset: Math.round(data.server_time_ms + rtt / 2 - t1), rtt };
+}
+
+export async function syncServerTime(samples = SYNC_SAMPLES) {
+  const taken = [];
+  for (let i = 0; i < samples; i++) {
+    try {
+      const smp = await sampleServerTime();
+      if (smp) taken.push(smp);
+    } catch (_) {}
+  }
+  if (!taken.length) return;
+  taken.sort((a, b) => a.rtt - b.rtt);
+  const best = taken[0];
+  const stale = !bestSync || Date.now() - bestSync.at > SYNC_STALE_MS;
+  if (stale || best.rtt <= bestSync.rtt * 1.5) {
+    // Ignore sub-jitter wobble so the countdown never visibly jumps.
+    if (!preciseTimeSynced || Math.abs(best.offset - serverTimeOffset) > SYNC_JITTER_MS) {
+      serverTimeOffset = best.offset;
     }
-  } catch (_) {}
+    preciseTimeSynced = true;
+    bestSync = { ...best, at: Date.now() };
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -140,7 +166,10 @@ export async function apiFetch(path, opts = {}) {
         console.error(`Critical clock skew: ${Math.abs(headerOffset) / 1000}s. Device clock may be wrong.`);
         // Don't use this offset; keep previous if available
         if (serverTimeOffset === 0) serverTimeOffset = headerOffset; // fallback if first sync
-      } else if (!preciseTimeSynced || Math.abs(headerOffset - serverTimeOffset) > 1500) {
+      } else if (!preciseTimeSynced) {
+        // Coarse 1s-resolution fallback until the first precise /time sync;
+        // never let it override a precise sync (the periodic /time sync
+        // catches a genuine device clock change within 10s anyway).
         serverTimeOffset = headerOffset;
       }
     }

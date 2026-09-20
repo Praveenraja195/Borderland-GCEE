@@ -1,7 +1,7 @@
-import { api } from '../../../../shared/js/api.js?v=v56_death_card_tiebreak';
-import { renderGameScreen } from './shell.js?v=v56_death_card_tiebreak';
-import { toast } from '../../../../shared/js/ui.js?v=v56_death_card_tiebreak';
-import { translateError, demoNoteHTML } from '../../../../shared/js/copy.js?v=v56_death_card_tiebreak';
+import { api } from '../../../../shared/js/api.js?v=v58_jh_deadline';
+import { renderGameScreen } from './shell.js?v=v58_jh_deadline';
+import { toast } from '../../../../shared/js/ui.js?v=v58_jh_deadline';
+import { translateError, demoNoteHTML } from '../../../../shared/js/copy.js?v=v58_jh_deadline';
 
 // King of Diamonds: The room average x 0.8 target game.
 // All teams start with (num_rounds * 20.0) total points for the entire game.

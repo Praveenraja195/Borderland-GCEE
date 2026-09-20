@@ -340,7 +340,7 @@ export function renderGameScreen(root, navigate, opts) {
     // ── Instruction phase — takes priority over all other states ────────────
     if (session?.instruction_until) {
       const instrExp = new Date(session.instruction_until);
-      if (instrExp > new Date()) {
+      if (instrExp.getTime() > (typeof api?.getServerNow === 'function' ? api.getServerNow() : Date.now())) {
         updateRulesFab(false);
         if (stopCd) { stopCd(); stopCd = null; }
         renderInstructions(instrExp);
@@ -604,7 +604,16 @@ export function renderGameScreen(root, navigate, opts) {
         (secs) => { face.textContent = formatCountdown(secs); },
         () => {
           face.textContent = '00:00:00';
-          setTimeout(load, 2000);
+          // Jack of Hearts has nothing left to show at 00:00 and the server
+          // reports the round closed the moment the deadline passes
+          // (is_closed is derived from it), so refetch straight away rather
+          // than parking the team on the expired board. The short grace
+          // absorbs clock-sync error: if the server hasn't crossed the
+          // deadline yet, the remounted countdown expires at once and lands
+          // back here. MindMaze / Ace of Spades keep the 2s — they auto-submit
+          // at 00:00 and draw their score reveal in place, and this refetch is
+          // what later replaces it with the waiting screen.
+          setTimeout(load, opts.gameCode === 'JACK_HEART' ? 250 : 2000);
         }
       );
     }
@@ -636,13 +645,28 @@ export function renderGameScreen(root, navigate, opts) {
       </div>
     `;
     const face = body.querySelector('#start-count-face');
+
+    // Warm anything the game needs to paint (e.g. Jack of Hearts' board)
+    // during the countdown, so nothing is fetched at "GO!".
+    if (typeof opts.prefetch === 'function') {
+      try { opts.prefetch({ ...ctx, gameApi: activeGameApi(), isDemo: isDemoActive }); } catch (_) {}
+    }
+
     stopCd = startCountdown(
       ctx.startTime,
       (secs) => {
         const intSecs = Math.ceil(secs);
         face.textContent = intSecs > 0 ? String(intSecs) : 'GO!';
       },
-      () => { stopCd = null; load(); },
+      () => {
+        stopCd = null;
+        // Mount straight from the session we already hold: the round's
+        // start_time/deadline are known, so every device flips to the game at
+        // the same server instant instead of after its own network round
+        // trip. The refetch behind it only reconciles.
+        if (currentSession) renderForSession(currentSession);
+        load();
+      },
     );
 
   }
@@ -1576,7 +1600,7 @@ export function renderGameScreen(root, navigate, opts) {
     // Countdown timer
     const face = body.querySelector('#instr-cd-face');
     const progressBar = body.querySelector('#instr-progress-bar');
-    const totalMs = expiresAt.getTime() - Date.now();
+    const totalMs = expiresAt.getTime() - (typeof api?.getServerNow === 'function' ? api.getServerNow() : Date.now());
 
     stopCd = startCountdown(
       expiresAt.toISOString(),

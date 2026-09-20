@@ -40,6 +40,24 @@ function gameApi(ctx) {
   return ctx.gameApi || api.team;
 }
 
+// Board data fetched during the shell's start countdown (see opts.prefetch)
+// so the round paints the instant it starts. Keyed by round id.
+const boardPrefetch = new Map();
+function loadBoard(ctx) {
+  const key = ctx.roundId;
+  if (key && boardPrefetch.has(key)) return boardPrefetch.get(key);
+  const p = Promise.all([
+    gameApi(ctx).jackHeartVisibleSymbols(ctx.roundId),
+    gameApi(ctx).jackHeartMySuit(ctx.roundId).catch(() => null),
+  ]);
+  if (key) {
+    boardPrefetch.set(key, p);
+    // A failed prefetch must not poison the real mount.
+    p.catch(() => boardPrefetch.delete(key));
+  }
+  return p;
+}
+
 function getCardInfo(symbolId) {
   if (!symbolId || symbolId < 1 || symbolId > 40) return null;
   const suitIndex = Math.floor((symbolId - 1) / 10);
@@ -62,6 +80,9 @@ export function renderJackHeart(root, navigate) {
   return renderGameScreen(root, navigate, {
     gameCode: 'JACK_HEART',
     apiGameCode: 'jack-heart',
+    prefetch(ctx) {
+      if (ctx.roundId) loadBoard(ctx);
+    },
     renderActive(container, ctx) {
       hideShellChrome(root, container);
       injectTheme();
@@ -403,10 +424,7 @@ async function mountRound(container, ctx) {
   let symbols = [];
   let mySuitInfo = null;
   try {
-    const [visSyms, suitRes] = await Promise.all([
-      gameApi(ctx).jackHeartVisibleSymbols(ctx.roundId),
-      gameApi(ctx).jackHeartMySuit(ctx.roundId).catch(() => null),
-    ]);
+    const [visSyms, suitRes] = await loadBoard(ctx);
     symbols = visSyms || [];
     mySuitInfo = suitRes;
   } catch (err) {

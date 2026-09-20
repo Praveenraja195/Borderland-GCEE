@@ -288,23 +288,21 @@ function mountRound(container, ctx, reload) {
     localStorage.removeItem(`bl_mm_state_${ctx.roundId}`);
   }
 
-  // Calculate elapsed time
-  const elapsedSecs = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
-  const totalDuration = MEMORIZE_DURATION + INPUT_DURATION;
-
-  let currentPhase = 'display';
-  let timeLeft = 0;
-
-  if (elapsedSecs < MEMORIZE_DURATION) {
-    currentPhase = 'display';
-    timeLeft = MEMORIZE_DURATION - elapsedSecs;
-  } else if (elapsedSecs < totalDuration) {
-    currentPhase = 'selection';
-    timeLeft = totalDuration - elapsedSecs;
-  } else {
-    currentPhase = 'selection';
-    timeLeft = 0;
+  // The phase is a pure function of SERVER time, so every device flips from
+  // memorize to input — and auto-submits — at the same instant, however late
+  // it mounted and whatever its own clock says.
+  const serverNow = () => (typeof api?.getServerNow === 'function' ? api.getServerNow() : Date.now());
+  const displayEndsAt = startTs + MEMORIZE_DURATION * 1000;
+  const selectionEndsAt = displayEndsAt + INPUT_DURATION * 1000;
+  function phaseAt(nowMs) {
+    if (nowMs < displayEndsAt) {
+      return { phase: 'display', timeLeft: Math.ceil((displayEndsAt - nowMs) / 1000) };
+    }
+    return { phase: 'selection', timeLeft: Math.max(0, Math.ceil((selectionEndsAt - nowMs) / 1000)) };
   }
+  const initialPhase = phaseAt(serverNow());
+  let currentPhase = initialPhase.phase;
+  let timeLeft = initialPhase.timeLeft;
 
   // Calculate cumulative score from previous submitted sub-rounds
   const rounds = ctx.session?.rounds || [];
@@ -467,18 +465,16 @@ function mountRound(container, ctx, reload) {
       return;
     }
 
-    state.timeLeft -= 1;
+    const p = phaseAt(serverNow());
+    if (p.phase === 'selection' && state.phase === 'display') startSelectionPhase();
+    state.timeLeft = p.timeLeft;
     updateTimerDisplay();
 
-    if (state.timeLeft <= 0) {
-      if (state.phase === 'display') {
-        startSelectionPhase();
-      } else if (state.phase === 'selection') {
-        clearInterval(timerInterval);
-        autoSubmitResult();
-      }
+    if (state.phase === 'selection' && p.timeLeft <= 0) {
+      clearInterval(timerInterval);
+      autoSubmitResult();
     }
-  }, 1000);
+  }, 250);
 
   function updateTimerDisplay() {
     const secsStr = String(Math.max(state.timeLeft, 0)).padStart(2, '0');
@@ -542,7 +538,7 @@ function mountRound(container, ctx, reload) {
     const correctTiles = [...state.picked].filter((i) => lit.has(Number(i))).length;
     const mistakes = [...state.picked].filter((i) => !lit.has(Number(i))).length;
     const moves = Math.max(state.moves, state.picked.size, correctTiles + mistakes);
-    const completionTimeSeconds = state.startedAt ? Math.max(0, (Date.now() - state.startedAt) / 1000) : 0;
+    const completionTimeSeconds = state.startedAt ? Math.max(0, (serverNow() - state.startedAt) / 1000) : 0;
 
     try {
       const res = await gameApi(ctx).mindmazeSubmit(ctx.roundId, {

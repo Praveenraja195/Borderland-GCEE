@@ -17,6 +17,12 @@ from app.models.mindmaze import MindmazeRound
 from app.models.round import Room, RoomStatus
 from app.models.selection import Round1Selection, Suit
 
+# A sub-round never starts "now": it is scheduled this far ahead so every
+# device has time to receive the update and count down to the same server
+# instant (the team app derives its 5-4-3-2-1 from start_time and the synced
+# server clock, not from when the message arrived).
+SUBROUND_START_LEAD = timedelta(seconds=5)
+
 _ROUND_MODEL_BY_GAME_CODE = {
     "MINDMAZE": MindmazeRound,
     "ACE_SPADE": AceSpadeRound,
@@ -75,7 +81,7 @@ async def start_session(
     now = datetime.now(timezone.utc)
     rounds = []
 
-    start_time_1 = now + timedelta(seconds=3)
+    start_time_1 = now + SUBROUND_START_LEAD
     if game_code == "MINDMAZE":
         play = timedelta(seconds=settings.mindmaze_round_seconds)
     elif game_code == "ACE_SPADE":
@@ -504,7 +510,7 @@ async def start_next_subround(
         raise ConflictError("All sub-rounds for this session have already been started")
 
     now = datetime.now(timezone.utc)
-    start_time = now + timedelta(seconds=3)
+    start_time = now + SUBROUND_START_LEAD
 
     if game.code == "MINDMAZE":
         play = timedelta(seconds=settings.mindmaze_round_seconds)
@@ -570,7 +576,7 @@ async def start_subround_by_number(
         raise NotFoundError(f"Sub-round {subround_number} not found for this session")
 
     now = datetime.now(timezone.utc)
-    start_time = now + timedelta(seconds=3)
+    start_time = now + SUBROUND_START_LEAD
 
     if game.code == "MINDMAZE":
         play = timedelta(seconds=settings.mindmaze_round_seconds)
@@ -695,7 +701,7 @@ async def restart_subround_by_number(
         await db.execute(delete(KingDiamondSubmission).where(KingDiamondSubmission.round_id == target_round.round_id))
 
     now = datetime.now(timezone.utc)
-    start_time = now + timedelta(seconds=3)
+    start_time = now + SUBROUND_START_LEAD
 
     if game.code == "MINDMAZE":
         play = timedelta(seconds=settings.mindmaze_round_seconds)
