@@ -1,0 +1,13 @@
+{
+  "name": "Borderland @ GCEE",
+  "short_name": "Borderland",
+  "start_url": "./index.html#/login",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "../shared/img/borderland_logo.png", "sizes": "1024x576", "type": "image/png", "purpose": "any" }
+  ]
+}

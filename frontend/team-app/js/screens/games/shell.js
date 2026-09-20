@@ -238,6 +238,22 @@ export function renderGameScreen(root, navigate, opts) {
 
   const body = root.querySelector('#game-body');
   const headerEl = root.querySelector('.bracket-header');
+
+  // "Back to Home" on every end-of-game screen (published leaderboard, and
+  // the "all sub-rounds done, waiting for results" screen). Delegated, since
+  // body.innerHTML is rebuilt on every refresh.
+  body.addEventListener('click', (e) => {
+    if (e.target.closest('[data-nav-home]')) navigate('#/home');
+  });
+  function homeButtonHTML() {
+    return `
+      <div class="game-home-dock">
+        <button type="button" class="cta-btn ghost game-home-btn" data-nav-home>
+          <span class="game-home-arrow" aria-hidden="true">‹</span>
+          <span>ホームへ戻る / HOME</span>
+        </button>
+      </div>`;
+  }
   const demoBannerEl = root.querySelector('#demo-banner');
   const demoAttemptEl = root.querySelector('#demo-banner-attempt');
 
@@ -468,6 +484,7 @@ export function renderGameScreen(root, navigate, opts) {
                   : '管理者が結果を公開すると、全チームの順位表が表示されます。<br>The full team leaderboard will be revealed once published by Admin.'}
               </p>
             </div>
+            ${homeButtonHTML()}
           </div>
         `;
         setTimeout(load, 2000);
@@ -884,6 +901,7 @@ export function renderGameScreen(root, navigate, opts) {
 
         body.innerHTML = buildAIBScoreboardHTML({
           tag: isDemoActive ? 'PRACTICE ARENA' : 'STAGE CLEAR',
+          footerHTML: homeButtonHTML(),
           title: 'MINDMAZE',
           titleAccent: 'LEADERBOARD',
           subtitle: '全ラウンド終了 / FINAL RESULTS',
@@ -912,6 +930,7 @@ export function renderGameScreen(root, navigate, opts) {
 
         body.innerHTML = buildAIBScoreboardHTML({
           tag: isDemoActive ? 'PRACTICE ARENA' : 'STAGE CLEAR',
+          footerHTML: homeButtonHTML(),
           title: 'ACE OF SPADES',
           titleAccent: 'LEADERBOARD',
           subtitle: '全ラウンド終了 / FINAL RESULTS',
@@ -940,6 +959,7 @@ export function renderGameScreen(root, navigate, opts) {
 
         body.innerHTML = buildAIBScoreboardHTML({
           tag: isDemoActive ? 'PRACTICE ARENA' : 'GAME CLEAR',
+          footerHTML: homeButtonHTML(),
           title: 'JACK OF HEARTS',
           titleAccent: 'LEADERBOARD',
           subtitle: '全ラウンド終了 / FINAL RESULTS',
@@ -983,6 +1003,7 @@ export function renderGameScreen(root, navigate, opts) {
                   <div class="bl-aib-status-jp">結果発表をお待ちください…</div>
                   <div class="bl-aib-status-en">Waiting for Admin to reveal results…</div>
                 </div>
+                ${homeButtonHTML()}
               </div>
             </div>
           `;
@@ -993,6 +1014,7 @@ export function renderGameScreen(root, navigate, opts) {
         const totalRounds = activeSession?.rounds ? activeSession.rounds.length : (rows[0]?.subrounds ? rows[0].subrounds.length : 5);
         body.innerHTML = buildAIBScoreboardHTML({
           tag: isDemoActive ? 'PRACTICE ARENA' : 'GAME CLEAR',
+          footerHTML: homeButtonHTML(),
           title: 'KING OF DIAMONDS',
           titleAccent: 'LEADERBOARD',
           subtitle: '全ラウンド終了 / FINAL RESULTS',

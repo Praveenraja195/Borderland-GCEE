@@ -3,6 +3,7 @@ import { HEADERS, BUTTONS, SUITS } from '../../../shared/js/copy.js';
 import { suitIconSVG } from '../../../shared/js/suit-icons.js';
 import { toast } from '../../../shared/js/ui.js';
 import { showCameraLockedModal } from './home.js';
+import { exitFullscreen } from '../fullscreen.js';
 
 const NAV_ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>',
@@ -67,6 +68,7 @@ export async function renderAccount(root, navigate) {
     if (logoutBtn) {
       logoutBtn.addEventListener('click', () => {
         clearToken('team');
+        exitFullscreen();
         navigate('#/login');
       });
     }
@@ -157,6 +159,7 @@ export async function renderAccount(root, navigate) {
   body.querySelector('#logout-btn').addEventListener('click', () => {
     if (confirm('ログアウトしますか？ / Are you sure you want to log out?')) {
       clearToken('team');
+      exitFullscreen();
       localStorage.removeItem('bl_room_id');
       localStorage.removeItem('bl_room_code');
       toast('Logged out');

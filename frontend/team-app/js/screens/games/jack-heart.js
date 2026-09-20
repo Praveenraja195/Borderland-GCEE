@@ -1,4 +1,5 @@
 import { api } from '../../../../shared/js/api.js?v=v51_typewriter_scoreboard';
+import { startJHCoach, stopJHCoach } from './jh-coach.js';
 import { renderGameScreen } from './shell.js?v=v51_typewriter_scoreboard';
 import { toast, startCountdown, formatCountdown } from '../../../../shared/js/ui.js?v=v51_typewriter_scoreboard';
 import { translateError, demoNoteHTML } from '../../../../shared/js/copy.js?v=v51_typewriter_scoreboard';
@@ -421,6 +422,7 @@ async function mountRound(container, ctx) {
     return;
   }
 
+  stopJHCoach();
   let symbols = [];
   let mySuitInfo = null;
   try {
@@ -534,7 +536,7 @@ async function mountRound(container, ctx) {
       <div class="jh-arena">
         <button type="button" id="tray-toggle" class="jh-tray-toggle">
           <div class="tt-left">
-            <span class="tt-title-text">TABLE CARDS</span>
+            <span class="tt-title-text">OTHER TEAM CARDS</span>
             <span class="tt-count">${symbols.length}</span>
           </div>
           <span class="tt-chev" style="transform: rotate(${trayOpen ? '180deg' : '0'})">▼</span>
@@ -646,7 +648,7 @@ async function mountRound(container, ctx) {
         trayGrid.appendChild(outer);
       });
     } else {
-      trayGrid.innerHTML = `<div style="font-size:0.8rem; font-weight:bold; padding: 12px 0;">NO CARDS ON TABLE YET.</div>`;
+      trayGrid.innerHTML = `<div style="font-size:0.8rem; font-weight:bold; padding: 12px 0;">NO OTHER TEAM CARDS YET.</div>`;
     }
 
     const btnPrev = container.querySelector('#btn-prev');
@@ -730,4 +732,8 @@ async function mountRound(container, ctx) {
 
   renderBoard();
   startTimerOnce();
+
+  // Practice rounds get the pointing-hand walkthrough (tray → flip a card →
+  // choose). Real rounds never do.
+  if (ctx.isDemo) startJHCoach(container, ctx); else stopJHCoach();
 }

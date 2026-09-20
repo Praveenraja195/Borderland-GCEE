@@ -1,4 +1,5 @@
 import { api, setToken } from '../../../shared/js/api.js';
+import { enterFullscreen, isFullscreenSupported, isIOS, isStandalone } from '../fullscreen.js';
 import { HEADERS, FIELDS, BUTTONS, tierLabelHTML, translateError } from '../../../shared/js/copy.js';
 import { toast, friendlyError } from '../../../shared/js/ui.js';
 import { suitIconSVG } from '../../../shared/js/suit-icons.js';
@@ -19,14 +20,18 @@ export function renderLogin(root, navigate) {
       <form id="login-form">
         <div class="field">
           <label class="tier-label">${tierLabelHTML(FIELDS.teamCode)}</label>
-          <input name="team_code" type="text" autocomplete="off" placeholder="e.g. GCEE-042" required />
+          <input name="team_code" type="text" autocomplete="off" placeholder="e.g. B@GCEE-1234#" required />
         </div>
         <div class="field">
           <label class="tier-label">${tierLabelHTML(FIELDS.password)}</label>
-          <input name="password" type="password" autocomplete="current-password" required />
+          <input name="password" type="password" autocomplete="current-password" placeholder="First 4 digits of your phone number" required />
         </div>
         <div id="err" class="field-error" style="display:none;"></div>
       </form>
+      ${isIOS() && !isStandalone() ? `
+        <p class="fs-hint">
+          iPhone: for full screen, tap <strong>Share</strong> → <strong>Add to Home Screen</strong> and open the app from there.
+        </p>` : ''}
     </div>
 
     <div class="cta-dock">
@@ -42,6 +47,9 @@ export function renderLogin(root, navigate) {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    // Full screen must be requested from the gesture itself, so do it before
+    // the login round trip; it simply stays on if the password was wrong.
+    if (isFullscreenSupported()) enterFullscreen();
     errBox.style.display = 'none';
     const fd = new FormData(form);
     const team_code = fd.get('team_code').trim();
