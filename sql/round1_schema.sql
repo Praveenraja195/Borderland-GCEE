@@ -801,7 +801,7 @@ SELECT
         FROM ace_spade_results asr
         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-    ) + COALESCE(kd.score, GREATEST(0.0,
+    ), 0) + COALESCE(kd.score, GREATEST(0.0,
         COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
         - COALESCE((
             SELECT SUM(kds.round_score)
@@ -827,7 +827,7 @@ SELECT
             FROM ace_spade_results asr
             JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-        ) + COALESCE(kd.score, GREATEST(0.0,
+        ), 0) + COALESCE(kd.score, GREATEST(0.0,
             COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
             - COALESCE((
                 SELECT SUM(kds.round_score)
@@ -910,7 +910,7 @@ SELECT
         FROM ace_spade_results asr
         JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
         WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-    ) + COALESCE(kd.score, GREATEST(0.0,
+    ), 0) + COALESCE(kd.score, GREATEST(0.0,
         COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
         - COALESCE((
             SELECT SUM(kds.round_score)
@@ -939,7 +939,7 @@ SELECT
             FROM ace_spade_results asr
             JOIN ace_spade_rounds asrd ON asrd.round_id = asr.round_id
             WHERE asrd.session_id = sas.session_id AND asr.team_id = t.team_id
-        ) + COALESCE(kd.score, GREATEST(0.0,
+        ), 0) + COALESCE(kd.score, GREATEST(0.0,
             COALESCE(NULLIF((SELECT COUNT(*) FROM king_diamond_rounds WHERE session_id = skd.session_id), 0), 5) * 20.0
             - COALESCE((
                 SELECT SUM(kds.round_score)

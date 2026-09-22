@@ -23,11 +23,26 @@ if url:
 "
 
 if [ "$RUN_MIGRATIONS" = "true" ]; then
+    # In production a failed migration must stop the container (the health
+    # check then keeps Caddy/worker from starting on a broken schema); in
+    # development it is only reported so a partially-migrated DB stays usable.
     echo "Running Alembic migrations..."
-    alembic upgrade head || echo "Alembic migration step finished with warnings/errors."
+    if ! alembic upgrade head; then
+        if [ "$ENVIRONMENT" = "production" ]; then
+            echo "FATAL: database migration failed; refusing to start." >&2
+            exit 1
+        fi
+        echo "Alembic migration step finished with warnings/errors."
+    fi
 
     echo "Seeding default admin user..."
-    python -m app.db.seed_admin || echo "Admin seed step finished with warnings/errors."
+    if ! python -m app.db.seed_admin; then
+        if [ "$ENVIRONMENT" = "production" ]; then
+            echo "FATAL: admin seed failed; refusing to start." >&2
+            exit 1
+        fi
+        echo "Admin seed step finished with warnings/errors."
+    fi
 fi
 
 exec "$@"

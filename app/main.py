@@ -62,11 +62,18 @@ async def lifespan(app: FastAPI):
         shutdown_scheduler()
 
 
+# The interactive API docs are a development aid; on a public event server
+# they only advertise the surface area, so they are off outside development.
+_IS_DEV = settings.environment == "development"
+
 app = FastAPI(
     title="Round 1 Backend",
     description="FastAPI backend for the Round 1 card-game event schema.",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if _IS_DEV else None,
+    redoc_url="/redoc" if _IS_DEV else None,
+    openapi_url="/openapi.json" if _IS_DEV else None,
 )
 
 app.add_middleware(
@@ -113,6 +120,35 @@ async def health_check():
 
 import time
 from datetime import datetime, timezone
+
+@app.get("/api/v1/health", tags=["meta"])
+async def get_health():
+    """Liveness for the container health check: the DB and Redis must answer."""
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text as _text
+
+    import redis.asyncio as _redis
+
+    from app.db.session import async_session_maker
+
+    problems: dict[str, str] = {}
+    try:
+        async with async_session_maker() as db:
+            await db.execute(_text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        problems["database"] = str(exc)[:200]
+    try:
+        client = _redis.from_url(settings.redis_url)
+        try:
+            await client.ping()
+        finally:
+            await client.aclose()
+    except Exception as exc:  # noqa: BLE001
+        problems["redis"] = str(exc)[:200]
+    if problems:
+        return JSONResponse({"status": "degraded", **problems}, status_code=503)
+    return {"status": "ok"}
+
 
 @app.get("/api/v1/time", tags=["meta"])
 async def get_server_time():

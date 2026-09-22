@@ -1,0 +1,21 @@
+# Reverse proxy in front of the API (which also serves the two web apps).
+#
+# SITE_ADDRESS (from .env) decides the mode:
+#   game.example.com   -> automatic HTTPS (Let's Encrypt) + HTTP->HTTPS redirect
+#   :80                -> plain HTTP, reachable by the VM's external IP
+#
+# WebSockets (/ws/...) are proxied transparently.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# The apps are single-page hash-routed; nothing here needs caching
+	# beyond what the API's own no-cache headers already say.
+	reverse_proxy api:8000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

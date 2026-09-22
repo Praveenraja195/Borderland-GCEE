@@ -63,3 +63,4 @@ frontend/build/
 # Operating System
 .DS_Store
 Thumbs.db
+backups/

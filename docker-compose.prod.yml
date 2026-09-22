@@ -1,0 +1,130 @@
+# Production stack for a single VM (e.g. Google Compute Engine).
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Differences from the development docker-compose.yml:
+#   - Caddy in front on 80/443: automatic HTTPS when SITE_ADDRESS is a
+#     hostname, plain HTTP when it is ":80" (IP-only access).
+#   - Postgres, Redis and the API are NOT published on the host; only Caddy is.
+#   - Code is baked into the image (no bind mount) — rebuild to deploy.
+#   - Secrets come from .env (see .env.example; deploy/setup-gcp-vm.sh
+#     generates one).
+#   - Redis persists to disk: it is the scheduler's job store, so pending
+#     sub-round close jobs survive a restart.
+#   - Everything restarts on reboot; container logs are size-capped.
+
+x-app-env: &app-env
+  ENVIRONMENT: production
+  DATABASE_URL: postgresql+asyncpg://round1:${POSTGRES_PASSWORD}@postgres:5432/round1
+  SYNC_DATABASE_URL: postgresql+psycopg2://round1:${POSTGRES_PASSWORD}@postgres:5432/round1
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: ${JWT_SECRET}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+  CORS_ORIGINS: ${CORS_ORIGINS:-*}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+  api:
+    build: .
+    image: borderland-gcee-api:latest
+    restart: unless-stopped
+    # --forwarded-allow-ips="*": trust X-Forwarded-* from Caddy (a docker
+    # network peer, not 127.0.0.1) so logs show real client addresses.
+    command: >
+      gunicorn app.main:app
+      -k uvicorn.workers.UvicornWorker
+      -w ${WEB_CONCURRENCY:-3}
+      -b 0.0.0.0:8000
+      --forwarded-allow-ips="*"
+      --timeout 90
+      --graceful-timeout 30
+      --keep-alive 5
+    expose:
+      - "8000"
+    environment:
+      <<: *app-env
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    logging: *logging
+
+  # Runs the sub-round close jobs (APScheduler). Exactly one instance.
+  worker:
+    image: borderland-gcee-api:latest
+    restart: unless-stopped
+    command: python -m app.workers.scheduler
+    environment:
+      <<: *app-env
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      api:
+        condition: service_healthy   # migrations have run by then
+    logging: *logging
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: round1
+      POSTGRES_USER: round1
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U round1 -d round1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: redis-server --appendonly yes --save 60 1
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:
